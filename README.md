@@ -1,6 +1,6 @@
 # cpp-trait
 
-Traits for C++ (20)
+Traits for C++ 20
 
 ```c++
 trait(Shape, (T), (
