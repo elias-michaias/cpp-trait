@@ -6,9 +6,9 @@ Generate concepts, static dispatch forwarding functions, and opt-in type-erased 
 Designed for C-style C++: respects pointer semantics, performs no heap allocations, and does not require inheritance or OOP hierarchies.
 
 ```c++
-trait(Shape, (T), (
-  (int, area, (T)),
-  (void, scale, (T *, int))
+trait(Shape, (Self), (
+  (int, area, (Self)),
+  (void, scale, (Self *, int))
 ))
 
 struct Circle { int r; };
@@ -90,7 +90,9 @@ struct Serialize::Impl<Circle> { ... };
 Write algorithms against capabilities instead of concrete types.
 
 ```c++
-trait(Add, (T), (
+// a static trait = no "Self", no vtable
+// can use first type arg as return or second param
+static_trait(Add, (T), (
   (T, add, (T, T))
 ))
 
@@ -105,8 +107,8 @@ T sum(T a, T b) {
 Construct a simple non-owning fat pointer (e.g. `Drawable::Dyn`) for dynamic dispatch.
 
 ```c++
-trait(Drawable, (T), (
-  (void, draw, (T *))
+trait(Drawable, (Self), (
+  (void, draw, (Self *))
 ))
 
 void render(Drawable::Dyn obj) {
@@ -119,8 +121,8 @@ void render(Drawable::Dyn obj) {
 Traits can call other trait functions naturally during implementation.
 
 ```c++
-trait(Print, (T), (
-  (void, print, (T))
+trait(Print, (Self), (
+  (void, print, (Self))
 ))
 
 struct Pair {

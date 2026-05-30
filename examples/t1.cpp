@@ -8,15 +8,17 @@
 // due to limitations of VTable generation,
 // the first type arg of a trait must be the first function arg ONLY
 // it can't be return type or any argument after the first
-trait(Shape, (T), (
-  (int, area, (T)),
-  (void, scale, (T *, int))
+// this is because it is actually "Self"
+trait(Shape, (Self), (
+  (int, area, (Self)),
+  (void, scale, (Self *, int))
 ))
 
 // static_trait(...)
 // no vtable/::Dyn generation --
 // allows first type arg in return type 
 // or after first function arg
+// no "Self" to speak of
 static_trait(Test, (T), (
   (T, test, (T, T))
 ))
@@ -58,9 +60,9 @@ static_assert(Shape::Trait<std::array<Rect, 2>>);
 static_assert(Shape::Trait<Shape::Dyn>);
 static_assert(Shape::Trait<std::array<Shape::Dyn, 3>>);
 
-// 2-param: Into<T, R>
-trait(Into, (T, V), (
-  (V, into, (const T &))
+// 2-param: Into<T>
+trait(Into, (Self, T), (
+  (T, into, (const Self &))
 ))
 
 struct MyFloat {
