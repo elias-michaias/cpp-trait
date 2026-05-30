@@ -5,9 +5,20 @@
 #include "../trait.hpp"
 
 // 1-param: Shape
+// due to limitations of VTable generation,
+// the first type arg of a trait must be the first function arg ONLY
+// it can't be return type or any argument after the first
 trait(Shape, (T), (
   (int, area, (T)),
   (void, scale, (T *, int))
+))
+
+// static_trait(...)
+// no vtable/::Dyn generation --
+// allows first type arg in return type 
+// or after first function arg
+static_trait(Test, (T), (
+  (T, test, (T, T))
 ))
 
 struct Circle { int r; };

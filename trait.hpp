@@ -319,4 +319,27 @@ constexpr decltype(auto) receiver_from(void *p) {
 #define TRAIT_EXPAND_2(Name, TP, MethodsTuple) TRAIT_EXPAND_3(Name, TP, UNWRAP_I MethodsTuple)
 #define TRAIT_EXPAND_3(Name, TP, ...) Trait(Name, TP, __VA_ARGS__)
 
+//--------------------------------------------------------------------
+//  Static-Only Frontend API wrapper: static_trait(NS, (TP), (methods...))
+//--------------------------------------------------------------------
+#define static_trait(...) STATIC_TRAIT_EXPAND_1(__VA_ARGS__)
+#define STATIC_TRAIT_EXPAND_1(...) STATIC_TRAIT_EXPAND_2(__VA_ARGS__)
+#define STATIC_TRAIT_EXPAND_2(Name, TP, MethodsTuple) STATIC_TRAIT_EXPAND_3(Name, TP, UNWRAP_I MethodsTuple)
+#define STATIC_TRAIT_EXPAND_3(Name, TP, ...) StaticTrait(Name, TP, __VA_ARGS__)
+
+#define StaticTrait(NS, TP, ...)                                               \
+  namespace NS {                                                               \
+  /* Primary Impl template with all type parameters */                         \
+  template <TYPENAME_LIST(TP)> struct Impl;                                    \
+                                                                               \
+  /* The Concept definition */                                                 \
+  template <TYPENAME_LIST(TP)>                                                 \
+  concept Trait = requires(FIRST(TP) t) {                                      \
+    FOR_EACH_WITH(TRAIT_REQ4_TUPLE, TP, __VA_ARGS__)                           \
+  };                                                                           \
+                                                                               \
+  /* The routing free functions */                                             \
+  FOR_EACH_WITH(FREE_FUNC4_TUPLE, TP, __VA_ARGS__)                             \
+  }
+
 #endif // TRAIT_GENERATION_H
