@@ -17,7 +17,7 @@ As such, the following goals are north stars for this library:
 - Static functions preferred to instance functions
 - Recursive static dispatch works exactly as you would expect
 - Static dispatch first, dynamic dispatch allowed via `Trait::Dyn` type
-- Concepts for template constraints 
+- Concepts for trait constraints instead of arcane SFINAE errors
 
 ## Non-goals
 
