@@ -140,5 +140,3 @@ int main() {
   f3 = f;
 }
 ```
-
-# cpp-trait
