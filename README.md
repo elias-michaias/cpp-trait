@@ -1,6 +1,9 @@
 # cpp-trait
 
-Traits for C++ 20
+### Traits for C++ 20
+
+Generate concepts, static dispatch forwarding functions, and opt-in type-erased dynamic dispatch (e.g. `Trait::Dyn`) from a single trait definition.
+Respects pointers, doesn't use your heap, and doesn't rely on OOP.
 
 ```c++
 trait(Shape, (T), (
