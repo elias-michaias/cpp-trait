@@ -22,8 +22,8 @@ std::cout << Shape::area(c) << "\n"; // 25
 Shape::scale(&c, 2);
 std::cout << Shape::area(c) << "\n"; // 100
 
-Shape::Dyn dc = c;
-std::cout << Shape::area(dc) << "\n"; // 100
+Shape::Dyn any_shape = c;
+std::cout << Shape::area(any_shape) << "\n"; // 100
 ```
 
 ## Goals
