@@ -102,7 +102,7 @@ T sum(T a, T b) {
 
 ### Alternative to virtual inheritance
 
-Construct a simple fat pointer (e.g. `Drawable::Dyn`) for dynamic dispatch.
+Construct a simple non-owning fat pointer (e.g. `Drawable::Dyn`) for dynamic dispatch.
 
 ```c++
 trait(Drawable, (T), (
