@@ -24,7 +24,7 @@ std::cout << Shape::area(c) << "\n"; // 100
 
 ## Goals
 
-This library is designed to enhance "C-style C++" with more robust polymorphism capabilities that perform well, read well, and play well with C's memory paradigm.
+This library is designed to enhance **"C-style C++"** with more robust polymorphism capabilities that perform well, read well, and play well with C's memory paradigm.
 That being said, Rust and Haskell are key inspirations for this library's approach to principled ad-hoc polymorphism.
 If the library has done its job, writing trait-centric APIs in C should feel like you have the compositional and type-level power of Rust with the control of C.
 As such, the following goals are north stars for this library:
