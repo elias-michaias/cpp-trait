@@ -57,4 +57,4 @@ I don't see a reason to implement these, but I'm not saying no forever:
 
 ## Examples
 
-- [https://github.com/elias-michaias/cpp-trait/blob/main/examples/t1.cpp](t1.cpp)
+- [t1.cpp](https://github.com/elias-michaias/cpp-trait/blob/main/examples/t1.cpp)
