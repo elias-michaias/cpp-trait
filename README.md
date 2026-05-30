@@ -33,7 +33,7 @@ std::cout << Shape::area(any_shape) << "\n"; // 100
 
 This library is designed to enhance **"C-style C++"** with more robust polymorphism capabilities that perform well, read well, and play well with C's memory paradigm.
 That being said, Rust and Haskell are key inspirations for this library's approach to principled ad-hoc polymorphism.
-If the library has done its job, writing trait-centric APIs in C should feel like you have the compositional power of Rust with the control of C.
+If the library has done its job, writing trait-centric APIs should feel like you have the compositional power of Rust with the control of C.
 As such, the following goals are north stars for this library:
 
 - Readable APIs
