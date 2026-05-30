@@ -6,13 +6,12 @@
 
 // 1-param: Shape
 trait(Shape, (T), (
-  (int, area, (const T &)),
+  (int, area, (T)),
   (void, scale, (T *, int))
 ))
 
-struct Circle {
-  int r;
-};
+struct Circle { int r; };
+
 template <> struct Shape::Impl<Circle> {
   static int area(const Circle &c) { return c.r * c.r; }
   static void scale(Circle *c, int f) { c->r *= f; }

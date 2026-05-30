@@ -2,6 +2,26 @@
 
 Traits for C++ (20)
 
+```c++
+trait(Shape, (T), (
+  (int, area, (T)),
+  (void, scale, (T *, int))
+))
+
+struct Circle { int r; };
+
+template<> 
+struct Shape::Impl<Circle> {
+  static int area(const Circle &c) { return c.r * c.r; }
+  static void scale(Circle *c, int f) { c->r *= f; }
+};
+
+Circle c{5};
+std::cout << Shape::area(c) << "\n"; // 25
+Shape::scale(&c, 2);
+std::cout << Shape::area(c) << "\n"; // 100
+```
+
 ## Goals
 
 This library is designed to enhance "C-style C++" with more robust polymorphism capabilities that perform well, read well, and play well with C's memory paradigm.
@@ -44,7 +64,7 @@ I don't see a reason to implement these, but I'm not saying no forever:
 
 // 1-param: Shape
 trait(Shape, (T), (
-  (int, area, (const T &)),
+  (int, area, (T)),
   (void, scale, (T *, int))
 ))
 
