@@ -126,7 +126,7 @@ struct Test::Impl<Container> {
 };
 ```
 
-### Strict traits vs. Ducktyped traits
+### Strict traits vs. ducktyped traits
 
 This library gives the programmer control over how types satisfy trait constraints. 
 
