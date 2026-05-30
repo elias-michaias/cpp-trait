@@ -74,7 +74,7 @@ int main() {
   Shape::scale(&c, 2);
   std::cout << Shape::area(c) << "\n"; // 100
 
-  Shape::Dyn sd(c);
+  Shape::Dyn sd = c;
   std::cout << Shape::area(sd) << "\n"; // 100
   Shape::scale(&sd, 3);
   std::cout << Shape::area(sd) << "\n"; // 900

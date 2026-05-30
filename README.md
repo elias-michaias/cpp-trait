@@ -18,8 +18,12 @@ struct Shape::Impl<Circle> {
 
 Circle c{5};
 std::cout << Shape::area(c) << "\n"; // 25
+
 Shape::scale(&c, 2);
 std::cout << Shape::area(c) << "\n"; // 100
+
+Shape::Dyn dc = c;
+std::cout << Shape::area(dc) << "\n"; // 100
 ```
 
 ## Goals
