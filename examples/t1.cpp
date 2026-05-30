@@ -13,7 +13,7 @@ trait(Shape, (T), (
 struct Circle { int r; };
 
 template <> struct Shape::Impl<Circle> {
-  static int area(const Circle &c) { return c.r * c.r; }
+  static int area(Circle c) { return c.r * c.r; }
   static void scale(Circle *c, int f) { c->r *= f; }
 };
 
