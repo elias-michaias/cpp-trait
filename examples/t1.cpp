@@ -20,7 +20,8 @@ trait(Shape, (Self), (
 // or after first function arg
 // no "Self" to speak of
 static_trait(Test, (T), (
-  (T, test, (T, T))
+  (type, Factor),
+  (T, test, (T, typename Impl<T>::Factor))
 ))
 
 struct Circle { int r; };
@@ -30,11 +31,19 @@ template <> struct Shape::Impl<Circle> {
   static void scale(Circle *c, int f) { c->r *= f; }
 };
 
+template <> struct Test::Impl<int> {
+  using Factor = bool;
+  static int test(int l, bool r) {
+    if (l && r) return true;
+    return false;
+  }
+};
+
 struct Rect {
   int x, y;
 };
 template <> struct Shape::Impl<Rect> {
-  static int area(const Rect &r) { return r.x * r.y; }
+  static int area(Rect r) { return r.x * r.y; }
   static void scale(Rect *r, int f) {
     r->x *= f;
     r->y *= f;
@@ -42,7 +51,7 @@ template <> struct Shape::Impl<Rect> {
 };
 
 template <Shape::Trait T, std::size_t N> struct Shape::Impl<std::array<T, N>> {
-  static int area(const std::array<T, N> &a) {
+  static int area(std::array<T, N> a) {
     int t = 0;
     for (auto &i : a)
       t += Shape::area(i);
@@ -61,7 +70,9 @@ static_assert(Shape::Trait<Shape::Dyn>);
 static_assert(Shape::Trait<std::array<Shape::Dyn, 3>>);
 
 // 2-param: Into<T>
-trait(Into, (Self, T), (
+// ducktyped_trait = allow C/C++ implicit conversions
+// example: int -> bool
+ducktyped_trait(Into, (Self, T), (
   (T, into, (const Self &))
 ))
 
@@ -108,6 +119,8 @@ int main() {
   std::cout << Into::into<int>(f3) << "\n"; // 3
                                       
   std::array<Into::Dyn<int>, 2> list = {id, f3};
+
+  Test::test(2, 4);
 
   f3 = f;
 }
