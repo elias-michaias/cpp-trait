@@ -77,3 +77,77 @@ Code generation works but it's (usually) far from portable and introduces more b
 
 This may be true in ten years.
 
+### Macros are evil
+
+For business logic, usually. For one-and-done boilerplate, I personally feel like macros are fine, but the ways of the preprocessor are indeed mysterious and it won't hurt my feelings if you don't use this library.
+
+## Use cases
+
+### Multiple independent interfaces
+
+A type can implement many traits without participating in a class hierarchy or incurring virtual table performance penalties.
+
+```c++
+struct Circle { int r; };
+
+template<>
+struct Area::Impl<Circle> { ... };
+
+template<>
+struct Drawable::Impl<Circle> { ... };
+
+template<>
+struct Serialize::Impl<Circle> { ... };
+```
+
+### Generic algorithms
+
+Write algorithms against capabilities instead of concrete types.
+
+```c++
+trait(Add, (T), (
+  (T, add, (T, T))
+))
+
+template <Add::Trait T>
+T sum(T a, T b) {
+  return Add::add(a, b);
+}
+```
+
+### Alternative to virtual inheritance
+
+Construct a simple fat pointer (e.g. `Drawable::Dyn`) for dynamic dispatch.
+
+```c++
+trait(Drawable, (T), (
+  (void, draw, (T *))
+))
+
+void render(Drawable::Dyn obj) {
+  Drawable::draw(obj);
+}
+```
+
+### Recursive static dispatch
+
+Traits can call other trait functions naturally during implementation.
+
+```c++
+trait(Print, (T), (
+  (void, print, (T))
+))
+
+struct Pair {
+  int left;
+  int right;
+};
+
+template<>
+struct Print::Impl<Pair> {
+  static void print(Pair p) {
+    Print::print(p.left);
+    Print::print(p.right);
+  }
+};
+```
