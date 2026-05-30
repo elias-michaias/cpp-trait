@@ -76,13 +76,13 @@ A type can implement many traits without participating in a class hierarchy or i
 struct Circle { int r; };
 
 template<>
-struct Area::Impl<Circle> { ... };
+struct Area::Impl<Circle> { /* ... */ };
 
 template<>
-struct Drawable::Impl<Circle> { ... };
+struct Drawable::Impl<Circle> { /* ... */ };
 
 template<>
-struct Serialize::Impl<Circle> { ... };
+struct Serialize::Impl<Circle> { /* ... */ };
 ```
 
 ### Generic algorithms
@@ -99,6 +99,60 @@ static_trait(Add, (T), (
 template <Add::Trait T>
 T sum(T a, T b) {
   return Add::add(a, b);
+}
+```
+
+### Associated types
+
+Traits can define associated types to express dependent type relationships (e.g. a graph's `Edge` type or an iterator's `Item` type). 
+*Note: Associated types can only be defined on a `static_trait`.*
+
+```c++
+static_trait(Test, (T), (
+  (type, Factor),
+  (T, test, (T, typename Impl<T>::Factor))
+))
+
+struct Container { int val; };
+
+template<>
+struct Test::Impl<Container> {
+  // Define the associated type for this specific implementation
+  using Factor = int; 
+  
+  static Container test(Container c, int f) { 
+    return { c.val * f }; 
+  }
+};
+```
+
+### Strict traits vs. Ducktyped traits
+
+This library gives the programmer control over how types satisfy trait constraints. 
+
+**Default (strict) traits:** By default, traits are strict. This means they inherently reject any of C/C++'s notorious implicit conversions, such as from `int` to `bool`.
+
+```c++
+trait(Drawable, (Self), (
+  (void, draw, (Self *, bool))
+))
+
+template<>
+struct Drawable::Impl<int> {
+    void draw(int a, int b); // ERROR: int != bool
+}
+```
+
+**Ducktyped traits:**  Ducktyped traits allow for C/C++'s implicit conversions to pass through.
+
+```c++
+ducktyped_trait(Drawable, (Self), (
+  (void, draw, (Self *, bool))
+))
+
+template<>
+struct Drawable::Impl<int> {
+    void draw(int a, int b); // OK: int coerces to bool
 }
 ```
 
