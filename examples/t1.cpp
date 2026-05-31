@@ -130,5 +130,6 @@ int main() {
 
   c.scale(2);
   std::cout << c.area() << std::endl;
+  std::cout << f3.into() << std::endl;
 
 }

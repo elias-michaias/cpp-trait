@@ -43,8 +43,7 @@ constexpr decltype(auto) receiver_from(void *p) {
 #define FOR_EACH_WITH2(macro, data1, data2, ...)                               \
   __VA_OPT__(EXPAND(FEWH2(macro, data1, data2, __VA_ARGS__)))
 #define FEWH2(macro, data1, data2, a1, ...)                                    \
-  macro(data1, data2, a1)                                                      \
-      __VA_OPT__(FEWA2 PARENS(macro, data1, data2, __VA_ARGS__))
+  macro(data1, data2, a1) __VA_OPT__(FEWA2 PARENS(macro, data1, data2, __VA_ARGS__))
 #define FEWA2() FEWH2
 
 //--------------------------------------------------------------------
@@ -268,8 +267,7 @@ constexpr decltype(auto) receiver_from(void *p) {
 //  C++23+: deducing this, no CRTP.
 //  C++20 : CRTP fallback.
 //--------------------------------------------------------------------
-#if defined(__cpp_explicit_this_parameter) &&                                  \
-    __cpp_explicit_this_parameter >= 202110L
+#if defined(__cpp_explicit_this_parameter) && __cpp_explicit_this_parameter >= 202110L
 
 #define MIXIN_TEMPLATE_HEAD(TP)                                                \
   MIXIN_TEMPLATE_HEAD_I(VA_COUNT(UNWRAP(TP)), UNWRAP(TP))
@@ -279,7 +277,7 @@ constexpr decltype(auto) receiver_from(void *p) {
 #define MIXIN_TEMPLATE_HEAD_2(A, B) template <typename B>
 #define MIXIN_TEMPLATE_HEAD_3(A, B, C) template <typename B, typename C>
 
-#define MIXIN_METHOD_EXTRA_PARAMS(P)                                           \
+#define MIXIN_METHOD_EXTRA_PARAMS(P)                                          \
   MIXIN_METHOD_EXTRA_PARAMS_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
 #define MIXIN_METHOD_EXTRA_PARAMS_I(N, ...)                                    \
   MIXIN_METHOD_EXTRA_PARAMS_II(N, __VA_ARGS__)
@@ -289,16 +287,14 @@ constexpr decltype(auto) receiver_from(void *p) {
 #define MIXIN_METHOD_EXTRA_PARAMS_2(S, T1) , T1 p1
 #define MIXIN_METHOD_EXTRA_PARAMS_3(S, T1, T2) , T1 p1, T2 p2
 #define MIXIN_METHOD_EXTRA_PARAMS_4(S, T1, T2, T3) , T1 p1, T2 p2, T3 p3
-#define MIXIN_METHOD_EXTRA_PARAMS_5(S, T1, T2, T3, T4)                         \
-  , T1 p1, T2 p2, T3 p3, T4 p4
+#define MIXIN_METHOD_EXTRA_PARAMS_5(S, T1, T2, T3, T4) , T1 p1, T2 p2, T3 p3, T4 p4
 
 #define MIXIN_METHOD4_TUPLE(NS, TP, M) MIXIN_METHOD4_APPLY(NS, TP, UNWRAP(M))
 #define MIXIN_METHOD4_APPLY(NS, TP, ...) MIXIN_METHOD4(TP, NS, __VA_ARGS__)
 #define MIXIN_METHOD4(TP, NS, Ret, Name, Params)                               \
-  Ret Name(this auto &self MIXIN_METHOD_EXTRA_PARAMS(Params)) {                \
+  Ret Name(this auto &self MIXIN_METHOD_EXTRA_PARAMS(Params)) {                     \
     if constexpr (requires {                                                   \
-                    ::NS::Name ANGLE_EXTRA_ARGS(TP)(                           \
-                        self CALL_EXTRA_ARGS(Params));                         \
+                    ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params)); \
                   }) {                                                         \
       if constexpr (std::is_void_v<Ret>) {                                     \
         ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params));         \
@@ -325,10 +321,12 @@ constexpr decltype(auto) receiver_from(void *p) {
 #define MIXIN_TEMPLATE_HEAD_3(A, B, C)                                         \
   template <class Derived, typename B, typename C>
 
-#define MIXIN_METHOD_PARAMS(P)                                                 \
+#define MIXIN_METHOD_PARAMS(P)                                          \
   MIXIN_METHOD_PARAMS_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
-#define MIXIN_METHOD_PARAMS_I(N, ...) MIXIN_METHOD_PARAMS_II(N, __VA_ARGS__)
-#define MIXIN_METHOD_PARAMS_II(N, ...) MIXIN_METHOD_PARAMS_##N(__VA_ARGS__)
+#define MIXIN_METHOD_PARAMS_I(N, ...)                                    \
+  MIXIN_METHOD_PARAMS_II(N, __VA_ARGS__)
+#define MIXIN_METHOD_PARAMS_II(N, ...)                                   \
+  MIXIN_METHOD_PARAMS_##N(__VA_ARGS__)
 #define MIXIN_METHOD_PARAMS_1(S)
 #define MIXIN_METHOD_PARAMS_2(S, T1) T1 p1
 #define MIXIN_METHOD_PARAMS_3(S, T1, T2) T1 p1, T2 p2
@@ -365,6 +363,12 @@ constexpr decltype(auto) receiver_from(void *p) {
     }                                                                          \
   }
 
+#endif
+
+#if (__cplusplus > 202002L) || defined(__cpp_explicit_this_parameter)
+#define MIXIN_BASE(TP) : Mixin ANGLE_EXTRA_ARGS(TP)
+#else
+#define MIXIN_BASE(TP) : Mixin<DYN_IMPL_SPEC_ARGS(TP)>
 #endif
 
 //--------------------------------------------------------------------
@@ -451,7 +455,7 @@ constexpr decltype(auto) receiver_from(void *p) {
   };                                                                           \
   FOR_EACH_WITH(FREE_FUNC4_TUPLE, TP, __VA_ARGS__)                             \
   MIXIN_TEMPLATE_HEAD(TP) struct Mixin {                                       \
-    FOR_EACH_WITH2(MIXIN_METHOD4_TUPLE, NS, TP, __VA_ARGS__)                   \
+    FOR_EACH_WITH2(MIXIN_METHOD4_TUPLE, NS, TP, __VA_ARGS__)                        \
   };                                                                           \
   TEMPLATE_DECL(TP) struct VTable {                                            \
     FOR_EACH_WITH(VTABLE_MEMBER4_TUPLE, TP, __VA_ARGS__)                       \
@@ -460,7 +464,7 @@ constexpr decltype(auto) receiver_from(void *p) {
     requires Trait<ALL_ARGS(TP)>                                               \
   inline static const VTable ANGLE_EXTRA_ARGS(TP) vt = {                       \
       FOR_EACH_WITH(VT_ENTRY4_TUPLE, TP, __VA_ARGS__)};                        \
-  TEMPLATE_DECL(TP) struct Dyn {                                               \
+  TEMPLATE_DECL(TP) struct Dyn MIXIN_BASE(TP) {                                \
     void *object;                                                              \
     const VTable ANGLE_EXTRA_ARGS(TP) * vtable;                                \
     DYN_CTOR_CONSTRAINT(TP)                                                    \
@@ -510,7 +514,7 @@ constexpr decltype(auto) receiver_from(void *p) {
                    TraitStrict<ALL_ARGS(TP)>);                                 \
   FOR_EACH_WITH(FREE_FUNC4_TUPLE, TP, __VA_ARGS__)                             \
   MIXIN_TEMPLATE_HEAD(TP) struct Mixin {                                       \
-    FOR_EACH_WITH2(MIXIN_METHOD4_TUPLE, NS, TP, __VA_ARGS__)                   \
+    FOR_EACH_WITH2(MIXIN_METHOD4_TUPLE, NS, TP, __VA_ARGS__)                        \
   };                                                                           \
   TEMPLATE_DECL(TP) struct VTable {                                            \
     FOR_EACH_WITH(VTABLE_MEMBER4_TUPLE, TP, __VA_ARGS__)                       \
@@ -519,7 +523,7 @@ constexpr decltype(auto) receiver_from(void *p) {
     requires Trait<ALL_ARGS(TP)>                                               \
   inline static const VTable ANGLE_EXTRA_ARGS(TP) vt = {                       \
       FOR_EACH_WITH(VT_ENTRY4_TUPLE, TP, __VA_ARGS__)};                        \
-  TEMPLATE_DECL(TP) struct Dyn {                                               \
+  TEMPLATE_DECL(TP) struct Dyn MIXIN_BASE(TP) {                                \
     void *object;                                                              \
     const VTable ANGLE_EXTRA_ARGS(TP) * vtable;                                \
     DYN_CTOR_CONSTRAINT(TP)                                                    \
