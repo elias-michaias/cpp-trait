@@ -5,37 +5,8 @@
 Generate concepts, static dispatch forwarding functions, mixins, and opt-in type-erased dynamic dispatch (e.g. `Trait::Dyn`) from a single trait definition.
 Designed for C-style C++: respects pointer semantics, performs no heap allocations, and does not require inheritance or OOP hierarchies.
 
-```c++
-trait(Shape, (Self), (
-  (int, area, (Self)),
-  (void, scale, (Self *, int))
-))
 
-struct Circle { int r; };
-
-// optionally, for dot notation, use a mixin
-//
-// C++ 23 - deducing this
-// struct Circle : Shape::Mixin { int r; };
-//
-// C++ 20 - CRTP
-// struct Circle : Shape::Mixin<Circle> { int r; };
-
-template<> 
-struct Shape::Impl<Circle> {
-  static int area(Circle c) { return c.r * c.r; }
-  static void scale(Circle *c, int f) { c->r *= f; }
-};
-
-Circle c{.r = 5};
-std::cout << Shape::area(c) << "\n"; // 25
-
-Shape::scale(&c, 2);
-std::cout << Shape::area(c) << "\n"; // 100
-
-Shape::Dyn any_shape = c;
-std::cout << Shape::area(any_shape) << "\n"; // 100
-```
+<img src="./capture.png" alt="cpp-trait code" />
 
 ## Goals
 
