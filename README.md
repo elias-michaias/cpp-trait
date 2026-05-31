@@ -21,9 +21,9 @@ As such, the following goals are north stars for this library:
 - Minimal reliance on C++ `std`
 - No heap allocation
 - Respect pointer semantics
-- Static functions preferred to instance functions
+- Static functions first, instance functions opt-in via `Trait::Mixin`
+- Static dispatch first, dynamic dispatch opt-in via `Trait::Dyn`
 - Recursive static dispatch works exactly as you would expect
-- Static dispatch first, dynamic dispatch allowed via `Trait::Dyn` type
 - Concepts for trait constraints instead of arcane SFINAE errors
 
 ## Non-goals
