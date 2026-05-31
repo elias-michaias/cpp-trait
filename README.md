@@ -4,7 +4,7 @@
 
 Generate concepts, static dispatch forwarding functions, mixins, and opt-in type-erased dynamic dispatch from a single trait definition.
 
-*Respects pointer semantics, performs no heap allocations, and no OOP required.*
+*Dispatches statically, respects pointer semantics, performs no heap allocations, requires no OOP.*
 
 
 <img src="./capture.png" alt="cpp-trait code" />
