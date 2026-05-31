@@ -24,8 +24,13 @@ static_trait(Test, (T), (
   (T, test, (T, typename Impl<T>::Factor))
 ))
 
-struct Boo {};
 
+// C++ 20
+// struct Circle : Shape::Mixin<Circle> { 
+//   int r;
+// };
+
+// C++ 23
 struct Circle : Shape::Mixin { 
   int r;
 };
@@ -46,6 +51,7 @@ template <> struct Test::Impl<int> {
 struct Rect {
   int x, y;
 };
+
 template <> struct Shape::Impl<Rect> {
   static int area(Rect r) { return r.x * r.y; }
   static void scale(Rect *r, int f) {
