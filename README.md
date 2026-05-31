@@ -3,7 +3,8 @@
 ### Traits for C++ 20
 
 Generate concepts, static dispatch forwarding functions, mixins, and opt-in type-erased dynamic dispatch from a single trait definition.
-*Designed for C-style C++: respects pointer semantics, performs no heap allocations, and does not require inheritance or OOP hierarchies.*
+
+*Respects pointer semantics, performs no heap allocations, and no OOP required.*
 
 
 <img src="./capture.png" alt="cpp-trait code" />
