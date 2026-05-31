@@ -24,7 +24,11 @@ static_trait(Test, (T), (
   (T, test, (T, typename Impl<T>::Factor))
 ))
 
-struct Circle { int r; };
+struct Boo {};
+
+struct Circle : Shape::Mixin { 
+  int r;
+};
 
 template <> struct Shape::Impl<Circle> {
   static int area(Circle c) { return c.r * c.r; }
@@ -93,7 +97,7 @@ static_assert(Into::Trait<Into::Dyn<int>, int>);
 
 int main() {
   // 1-param: Shape
-  Circle c{5};
+  Circle c{.r = 5};
   std::cout << Shape::area(c) << "\n"; // 25
   Shape::scale(&c, 2);
   std::cout << Shape::area(c) << "\n"; // 100
@@ -123,4 +127,8 @@ int main() {
   Test::test(2, 4);
 
   f3 = f;
+
+  c.scale(2);
+  std::cout << c.area() << std::endl;
+
 }

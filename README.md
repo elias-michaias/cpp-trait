@@ -2,7 +2,7 @@
 
 ### Traits for C++ 20
 
-Generate concepts, static dispatch forwarding functions, and opt-in type-erased dynamic dispatch (e.g. `Trait::Dyn`) from a single trait definition.
+Generate concepts, static dispatch forwarding functions, mixins, and opt-in type-erased dynamic dispatch (e.g. `Trait::Dyn`) from a single trait definition.
 Designed for C-style C++: respects pointer semantics, performs no heap allocations, and does not require inheritance or OOP hierarchies.
 
 ```c++
@@ -13,13 +13,21 @@ trait(Shape, (Self), (
 
 struct Circle { int r; };
 
+// optionally, for dot notation, use a mixin
+//
+// C++ 23 - deducing this
+// struct Circle : Shape::Mixin { int r; };
+//
+// C++ 20 - CRTP
+// struct Circle : Shape::Mixin<Circle> { int r; };
+
 template<> 
 struct Shape::Impl<Circle> {
   static int area(Circle c) { return c.r * c.r; }
   static void scale(Circle *c, int f) { c->r *= f; }
 };
 
-Circle c{5};
+Circle c{.r = 5};
 std::cout << Shape::area(c) << "\n"; // 25
 
 Shape::scale(&c, 2);
@@ -54,13 +62,7 @@ The following are not supported, and will never be supported:
 
 - Automatic memory management
 - Any implementation of Rust/C++ move semantics
-- Compatibility with OOP hierarchies
-
-## Probably non-goals
-
-I don't see a reason to implement these, but I'm not saying no forever:
-
-- Dot notation (e.g. `obj.method()`)
+- Robust compatibility with OOP hierarchies
 
 ## Examples
 
@@ -90,7 +92,7 @@ struct Serialize::Impl<Circle> { /* ... */ };
 Write algorithms against capabilities instead of concrete types.
 
 ```c++
-// a static trait = no "Self", no vtable
+// a static trait = no "Self", no vtable, no mixin
 // can use first type arg as return or second param
 static_trait(Add, (T), (
   (T, add, (T, T))

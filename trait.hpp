@@ -40,6 +40,13 @@ constexpr decltype(auto) receiver_from(void *p) {
   macro(data, a1) __VA_OPT__(FEWA PARENS(macro, data, __VA_ARGS__))
 #define FEWA() FEWH
 
+#define FOR_EACH_WITH2(macro, data1, data2, ...)                               \
+  __VA_OPT__(EXPAND(FEWH2(macro, data1, data2, __VA_ARGS__)))
+#define FEWH2(macro, data1, data2, a1, ...)                                    \
+  macro(data1, data2, a1)                                                      \
+      __VA_OPT__(FEWA2 PARENS(macro, data1, data2, __VA_ARGS__))
+#define FEWA2() FEWH2
+
 //--------------------------------------------------------------------
 //  Arity / unwrap
 //--------------------------------------------------------------------
@@ -254,6 +261,113 @@ constexpr decltype(auto) receiver_from(void *p) {
   }
 
 //--------------------------------------------------------------------
+//--------------------------------------------------------------------
+//--------------------------------------------------------------------
+//--------------------------------------------------------------------
+//  Mixin helpers (instance-method forwarding for non-static traits)
+//  C++23+: deducing this, no CRTP.
+//  C++20 : CRTP fallback.
+//--------------------------------------------------------------------
+#if defined(__cpp_explicit_this_parameter) &&                                  \
+    __cpp_explicit_this_parameter >= 202110L
+
+#define MIXIN_TEMPLATE_HEAD(TP)                                                \
+  MIXIN_TEMPLATE_HEAD_I(VA_COUNT(UNWRAP(TP)), UNWRAP(TP))
+#define MIXIN_TEMPLATE_HEAD_I(N, ...) MIXIN_TEMPLATE_HEAD_II(N, __VA_ARGS__)
+#define MIXIN_TEMPLATE_HEAD_II(N, ...) MIXIN_TEMPLATE_HEAD_##N(__VA_ARGS__)
+#define MIXIN_TEMPLATE_HEAD_1(A)
+#define MIXIN_TEMPLATE_HEAD_2(A, B) template <typename B>
+#define MIXIN_TEMPLATE_HEAD_3(A, B, C) template <typename B, typename C>
+
+#define MIXIN_METHOD_EXTRA_PARAMS(P)                                           \
+  MIXIN_METHOD_EXTRA_PARAMS_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
+#define MIXIN_METHOD_EXTRA_PARAMS_I(N, ...)                                    \
+  MIXIN_METHOD_EXTRA_PARAMS_II(N, __VA_ARGS__)
+#define MIXIN_METHOD_EXTRA_PARAMS_II(N, ...)                                   \
+  MIXIN_METHOD_EXTRA_PARAMS_##N(__VA_ARGS__)
+#define MIXIN_METHOD_EXTRA_PARAMS_1(S)
+#define MIXIN_METHOD_EXTRA_PARAMS_2(S, T1) , T1 p1
+#define MIXIN_METHOD_EXTRA_PARAMS_3(S, T1, T2) , T1 p1, T2 p2
+#define MIXIN_METHOD_EXTRA_PARAMS_4(S, T1, T2, T3) , T1 p1, T2 p2, T3 p3
+#define MIXIN_METHOD_EXTRA_PARAMS_5(S, T1, T2, T3, T4)                         \
+  , T1 p1, T2 p2, T3 p3, T4 p4
+
+#define MIXIN_METHOD4_TUPLE(NS, TP, M) MIXIN_METHOD4_APPLY(NS, TP, UNWRAP(M))
+#define MIXIN_METHOD4_APPLY(NS, TP, ...) MIXIN_METHOD4(TP, NS, __VA_ARGS__)
+#define MIXIN_METHOD4(TP, NS, Ret, Name, Params)                               \
+  Ret Name(this auto &self MIXIN_METHOD_EXTRA_PARAMS(Params)) {                \
+    if constexpr (requires {                                                   \
+                    ::NS::Name ANGLE_EXTRA_ARGS(TP)(                           \
+                        self CALL_EXTRA_ARGS(Params));                         \
+                  }) {                                                         \
+      if constexpr (std::is_void_v<Ret>) {                                     \
+        ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params));         \
+      } else {                                                                 \
+        return ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params));  \
+      }                                                                        \
+    } else {                                                                   \
+      if constexpr (std::is_void_v<Ret>) {                                     \
+        ::NS::Name ANGLE_EXTRA_ARGS(TP)(&self CALL_EXTRA_ARGS(Params));        \
+      } else {                                                                 \
+        return ::NS::Name ANGLE_EXTRA_ARGS(TP)(&self CALL_EXTRA_ARGS(Params)); \
+      }                                                                        \
+    }                                                                          \
+  }
+
+#else
+
+#define MIXIN_TEMPLATE_HEAD(TP)                                                \
+  MIXIN_TEMPLATE_HEAD_I(VA_COUNT(UNWRAP(TP)), UNWRAP(TP))
+#define MIXIN_TEMPLATE_HEAD_I(N, ...) MIXIN_TEMPLATE_HEAD_II(N, __VA_ARGS__)
+#define MIXIN_TEMPLATE_HEAD_II(N, ...) MIXIN_TEMPLATE_HEAD_##N(__VA_ARGS__)
+#define MIXIN_TEMPLATE_HEAD_1(A) template <class Derived>
+#define MIXIN_TEMPLATE_HEAD_2(A, B) template <class Derived, typename B>
+#define MIXIN_TEMPLATE_HEAD_3(A, B, C)                                         \
+  template <class Derived, typename B, typename C>
+
+#define MIXIN_METHOD_PARAMS(P)                                                 \
+  MIXIN_METHOD_PARAMS_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
+#define MIXIN_METHOD_PARAMS_I(N, ...) MIXIN_METHOD_PARAMS_II(N, __VA_ARGS__)
+#define MIXIN_METHOD_PARAMS_II(N, ...) MIXIN_METHOD_PARAMS_##N(__VA_ARGS__)
+#define MIXIN_METHOD_PARAMS_1(S)
+#define MIXIN_METHOD_PARAMS_2(S, T1) T1 p1
+#define MIXIN_METHOD_PARAMS_3(S, T1, T2) T1 p1, T2 p2
+#define MIXIN_METHOD_PARAMS_4(S, T1, T2, T3) T1 p1, T2 p2, T3 p3
+#define MIXIN_METHOD_PARAMS_5(S, T1, T2, T3, T4) T1 p1, T2 p2, T3 p3, T4 p4
+
+#define MIXIN_METHOD4_TUPLE(NS, TP, M) MIXIN_METHOD4_APPLY(NS, TP, UNWRAP(M))
+#define MIXIN_METHOD4_APPLY(NS, TP, ...) MIXIN_METHOD4(TP, NS, __VA_ARGS__)
+#define MIXIN_METHOD4(TP, NS, Ret, Name, Params)                               \
+  Ret Name(MIXIN_METHOD_PARAMS(Params)) {                                      \
+    if constexpr (requires {                                                   \
+                    ::NS::Name ANGLE_EXTRA_ARGS(TP)(static_cast<Derived &>(    \
+                        *this) CALL_EXTRA_ARGS(Params));                       \
+                  }) {                                                         \
+      if constexpr (std::is_void_v<decltype(::NS::Name ANGLE_EXTRA_ARGS(TP)(   \
+                        static_cast<Derived &>(*this)                          \
+                            CALL_EXTRA_ARGS(Params)))>) {                      \
+        ::NS::Name ANGLE_EXTRA_ARGS(TP)(static_cast<Derived &>(*this)          \
+                                            CALL_EXTRA_ARGS(Params));          \
+      } else {                                                                 \
+        return ::NS::Name ANGLE_EXTRA_ARGS(TP)(static_cast<Derived &>(*this)   \
+                                                   CALL_EXTRA_ARGS(Params));   \
+      }                                                                        \
+    } else {                                                                   \
+      if constexpr (std::is_void_v<decltype(::NS::Name ANGLE_EXTRA_ARGS(TP)(   \
+                        static_cast<Derived *>(this)                           \
+                            CALL_EXTRA_ARGS(Params)))>) {                      \
+        ::NS::Name ANGLE_EXTRA_ARGS(TP)(static_cast<Derived *>(this)           \
+                                            CALL_EXTRA_ARGS(Params));          \
+      } else {                                                                 \
+        return ::NS::Name ANGLE_EXTRA_ARGS(TP)(static_cast<Derived *>(this)    \
+                                                   CALL_EXTRA_ARGS(Params));   \
+      }                                                                        \
+    }                                                                          \
+  }
+
+#endif
+
+//--------------------------------------------------------------------
 //  Strict operation macros (exact signature for non‑Dyn types)
 //--------------------------------------------------------------------
 #define STRICT_TRAIT_REQ4_TUPLE(TP, M) STRICT_TRAIT_REQ4_APPLY(TP, UNWRAP(M))
@@ -288,7 +402,7 @@ constexpr decltype(auto) receiver_from(void *p) {
 #define DUCK_STATIC_TRAIT_FUNC_II(TP, N, ...)                                  \
   DUCK_STATIC_TRAIT_FUNC_##N(TP, __VA_ARGS__)
 
-#define DUCK_STATIC_TRAIT_FUNC_2(TP, kword, Name) /* nothing */
+#define DUCK_STATIC_TRAIT_FUNC_2(TP, kword, Name)
 #define DUCK_STATIC_TRAIT_FUNC_3(TP, Ret, Name, Params)                        \
   FREE_FUNC4(TP, Ret, Name, Params)
 
@@ -327,7 +441,6 @@ constexpr decltype(auto) receiver_from(void *p) {
 //  Main macros
 //--------------------------------------------------------------------
 
-// Duck‑typed trait (loose checking, multiple Dyn overloads)
 #define DuckTrait(NS, TP, ...)                                                 \
   namespace NS {                                                               \
   TEMPLATE_DECL(TP) struct Dyn;                                                \
@@ -337,6 +450,9 @@ constexpr decltype(auto) receiver_from(void *p) {
     FOR_EACH_WITH(DUCK_TRAIT_REQ4_TUPLE, TP, __VA_ARGS__)                      \
   };                                                                           \
   FOR_EACH_WITH(FREE_FUNC4_TUPLE, TP, __VA_ARGS__)                             \
+  MIXIN_TEMPLATE_HEAD(TP) struct Mixin {                                       \
+    FOR_EACH_WITH2(MIXIN_METHOD4_TUPLE, NS, TP, __VA_ARGS__)                   \
+  };                                                                           \
   TEMPLATE_DECL(TP) struct VTable {                                            \
     FOR_EACH_WITH(VTABLE_MEMBER4_TUPLE, TP, __VA_ARGS__)                       \
   };                                                                           \
@@ -361,7 +477,6 @@ constexpr decltype(auto) receiver_from(void *p) {
   };                                                                           \
   }
 
-// Static duck‑typed trait
 #define StaticDuckTrait(NS, TP, ...)                                           \
   namespace NS {                                                               \
   template <TYPENAME_LIST(TP)> struct Impl;                                    \
@@ -372,7 +487,6 @@ constexpr decltype(auto) receiver_from(void *p) {
   FOR_EACH_WITH(DUCK_STATIC_TRAIT_FUNC, TP, __VA_ARGS__)                       \
   }
 
-// Strict trait (exact signatures for concrete types, duck for Dyn)
 #define StrictTrait(NS, TP, ...)                                               \
   namespace NS {                                                               \
   TEMPLATE_DECL(TP) struct Dyn;                                                \
@@ -395,6 +509,9 @@ constexpr decltype(auto) receiver_from(void *p) {
                   (!TraitIsDyn<std::remove_cvref_t<FIRST(TP)>>::value &&       \
                    TraitStrict<ALL_ARGS(TP)>);                                 \
   FOR_EACH_WITH(FREE_FUNC4_TUPLE, TP, __VA_ARGS__)                             \
+  MIXIN_TEMPLATE_HEAD(TP) struct Mixin {                                       \
+    FOR_EACH_WITH2(MIXIN_METHOD4_TUPLE, NS, TP, __VA_ARGS__)                   \
+  };                                                                           \
   TEMPLATE_DECL(TP) struct VTable {                                            \
     FOR_EACH_WITH(VTABLE_MEMBER4_TUPLE, TP, __VA_ARGS__)                       \
   };                                                                           \
@@ -414,13 +531,11 @@ constexpr decltype(auto) receiver_from(void *p) {
       return *this;                                                            \
     }                                                                          \
   };                                                                           \
-  /* Dyn uses duck overloads – strict check skipped for Dyn */                 \
   TEMPLATE_DECL(TP) IMPL_SPEC_HEAD(TP) struct Impl<DYN_IMPL_SPEC_ARGS(TP)> {   \
     FOR_EACH_WITH(IMPL_DYN_METHOD4_TUPLE, TP, __VA_ARGS__)                     \
   };                                                                           \
   }
 
-// Strict static trait
 #define StrictStaticTrait(NS, TP, ...)                                         \
   namespace NS {                                                               \
   template <TYPENAME_LIST(TP)> struct Impl;                                    \
