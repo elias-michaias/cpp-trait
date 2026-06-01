@@ -117,7 +117,7 @@ struct Drawable::Impl<int> {
 }
 ```
 
-**Ducktyped traits:**  Ducktyped traits allow for C/C++'s implicit conversions to pass through. Useful when you have existing functions that already depend on weakly typed mechanisms.
+**Ducktyped traits:**  Ducktyped traits allow for C/C++'s implicit conversions to pass through. This allows implementations of traits to have different levels of const-ness or ref-ness from the trait's signature. Useful when you have existing functions that already depend on weakly typed mechanisms.
 
 ```c++
 ducktyped_trait(Drawable, (Self), (

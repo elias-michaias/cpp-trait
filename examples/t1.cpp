@@ -81,9 +81,13 @@ static_assert(Shape::Trait<std::array<Shape::Dyn, 3>>);
 
 // 2-param: Into<T>
 // ducktyped_trait = allow C/C++ implicit conversions
-// example: int -> bool
+// examples: 
+// - int -> bool
+// - const T -> T
+// - T -> T &
+// try turning this into a regular trait and seeing what happens!
 ducktyped_trait(Into, (Self, T), (
-  (T, into, (const Self &))
+  (T, into, (Self))
 ))
 
 struct MyFloat {
