@@ -104,7 +104,7 @@ struct Test::Impl<Container> {
 
 This library gives the programmer control over how types satisfy trait constraints. 
 
-**Default (strict) traits:** By default, traits are strict. This means they inherently reject any of C/C++'s notorious implicit conversions, such as from `int` to `bool`.
+**Default (strict) traits:** By default, traits are strict. This means they inherently reject any of C/C++'s notorious implicit conversions, such as from `const T` to `T`, or from `int` to `bool`.
 
 ```c++
 trait(Drawable, (Self), (
