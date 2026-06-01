@@ -2,9 +2,7 @@
 #ifndef TRAIT_GENERATION_H
 #define TRAIT_GENERATION_H
 
-#include <concepts>
 #include <type_traits>
-#include <utility>
 
 namespace gen_interface_detail {
 
