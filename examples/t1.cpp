@@ -2,11 +2,19 @@
 
 #include <array>
 #include <iostream>
+#include <memory>
+#include <optional>
 #include <variant>
 #include "../trait.hpp"
 
 template <typename T> struct Box {
   T inner;
+};
+
+template <typename T> struct AccessBox {
+  T inner;
+  T &get() { return inner; }
+  const T &get() const { return inner; }
 };
 
 // 1-param: Shape
@@ -19,6 +27,16 @@ trait(Shape, (Self), (
   (void, scale, (Self *, int))
 ), (
   (member, Box, (Self), inner),
+  (deref, std::shared_ptr, (Self)),
+  (optional, std::optional, (Self),
+   ([](auto ret, auto &, auto...) {
+     if constexpr (std::is_void_v<typename decltype(ret)::type>)
+       return;
+     else
+       return 0;
+   })),
+  (accessor, AccessBox, (Self),
+   ([](auto &box) -> decltype(auto) { return box.get(); })),
   (iterate, std::array, (Self, N),
    (reduce, 0, ([](auto acc, auto value) { return acc + value; }))),
   (variant,
@@ -80,6 +98,9 @@ static_assert(Shape::Trait<Circle>);
 static_assert(Shape::Trait<Rect>);
 static_assert(Shape::Trait<std::array<Rect, 2>>);
 static_assert(Shape::Trait<Box<Circle>>);
+static_assert(Shape::Trait<std::shared_ptr<Circle>>);
+static_assert(Shape::Trait<std::optional<Circle>>);
+static_assert(Shape::Trait<AccessBox<Circle>>);
 static_assert(Shape::Trait<std::variant<Circle, Rect>>);
 static_assert(Shape::Trait<std::variant<Circle, int>>);
 static_assert(Shape::Trait<Shape::Dyn>);
@@ -132,6 +153,24 @@ int main() {
   std::cout << Shape::area(boxed) << "\n"; // 900
   Shape::scale(&boxed, 2);
   std::cout << Shape::area(boxed) << "\n"; // 3600
+
+  auto owned = std::make_shared<Circle>(Circle{.r = 6});
+  std::cout << Shape::area(owned) << "\n"; // 36
+  Shape::scale(&owned, 2);
+  std::cout << Shape::area(owned) << "\n"; // 144
+
+  std::optional<Circle> maybe = Circle{.r = 4};
+  std::cout << Shape::area(maybe) << "\n"; // 16
+  Shape::scale(&maybe, 2);
+  std::cout << Shape::area(maybe) << "\n"; // 64
+  maybe.reset();
+  std::cout << Shape::area(maybe) << "\n"; // 0
+  Shape::scale(&maybe, 2);
+
+  AccessBox<Circle> accessed{.inner = Circle{.r = 3}};
+  std::cout << Shape::area(accessed) << "\n"; // 9
+  Shape::scale(&accessed, 2);
+  std::cout << Shape::area(accessed) << "\n"; // 36
 
   std::variant<Circle, Rect> vr = r;
   std::cout << Shape::area(vr) << "\n"; // 12
