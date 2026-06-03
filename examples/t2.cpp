@@ -11,19 +11,20 @@ template <typename T> struct AccessBox {
 
 template <typename T> concept HasGet = requires(T t) { t.get(); };
 
-trait(Display, (Self), (
-  (int, width, (Self))
-), (
-  (accessor, (requires, HasGet), (Self),
-   ([](auto &box) -> decltype(auto) { return box.get(); }))
-))
+constexpr auto access_via_get = [](auto &box) -> decltype(auto) {
+  return box.get();
+};
 
-trait(Outline, (Self), (
-  (int, stroke, (Self))
-), (
-  (accessor, (requires, Display::Trait), (Self),
-   ([](auto &box) -> decltype(auto) { return box.get(); }))
-))
+#define DISPLAY_METHODS ((int, width, (Self)))
+#define DISPLAY_RULES ((accessor, (requires, HasGet), (Self), access_via_get))
+
+trait(Display, (Self), DISPLAY_METHODS, DISPLAY_RULES)
+
+#define OUTLINE_METHODS ((int, stroke, (Self)))
+#define OUTLINE_RULES                                                         \
+  ((accessor, (requires, Display::Trait), (Self), access_via_get))
+
+trait(Outline, (Self), OUTLINE_METHODS, OUTLINE_RULES)
 
 struct Glyph {
   int units;

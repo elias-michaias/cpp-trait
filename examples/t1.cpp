@@ -5,7 +5,6 @@
 #include <memory>
 #include <optional>
 #include <variant>
-#include <vector>
 #include "../trait.hpp"
 
 template <typename T> struct Box {
@@ -44,83 +43,80 @@ template <typename T> struct TaggedPtrUnion {
   };
 };
 
+constexpr auto zero_if_missing = [](auto ret, auto &, auto...) {
+  if constexpr (std::is_void_v<typename decltype(ret)::type>)
+    return;
+  else
+    return 0;
+};
+
+constexpr auto access_via_get = [](auto &box) -> decltype(auto) {
+  return box.get();
+};
+
+constexpr auto sum_reduce = [](auto acc, auto value) {
+  return acc + value;
+};
+
+constexpr auto visit_tagged_ptr_union =
+    [](auto &self, auto ret, auto &&visit) -> typename decltype(ret)::type {
+  using Union = std::remove_cvref_t<decltype(self)>;
+  switch (self.kind) {
+  case Union::Kind::value:
+    return visit(*self.value);
+  case Union::Kind::other:
+    if constexpr (std::is_void_v<typename decltype(ret)::type>)
+      return;
+    else
+      return 0;
+  }
+  if constexpr (std::is_void_v<typename decltype(ret)::type>)
+    return;
+  else
+    return 0;
+};
+
+
 // 1-param: Shape
 // due to limitations of VTable generation,
 // the first type arg of a trait must be the first function arg ONLY
 // it can't be return type or any argument after the first
 // this is because it is actually "Self"
 trait(Shape, (Self), (
-  (int, area, (Self)),
-  (void, scale, (Self *, int))
-), (
-  (member, Box, (Self), inner),
-  (deref, std::shared_ptr, (Self)),
-  (optional, std::optional, (Self),
-   ([](auto ret, auto &, auto...) {
-     if constexpr (std::is_void_v<typename decltype(ret)::type>)
-       return;
-     else
-       return 0;
-   })),
-  (nullable, MaybePtr, (Self),
-   ([](auto ret, auto &, auto...) {
-     if constexpr (std::is_void_v<typename decltype(ret)::type>)
-       return;
-     else
-       return 0;
-   })),
-  (accessor, (requires, HasGet, HasInner), (Self),
-   ([](auto &box) -> decltype(auto) { return box.get(); })),
-  (iterate, std::array, (Self, N),
-   (reduce, 0, ([](auto acc, auto value) { return acc + value; }))),
-  (iterate_ptr, Slice, (Self), ptr, count,
-   (reduce, 0, ([](auto acc, auto value) { return acc + value; }))),
-  (variant,
-   ([](auto ret, auto &, auto...) {
-     if constexpr (std::is_void_v<typename decltype(ret)::type>)
-       return;
-     else
-       return 0;
-   })),
-  (tag_union, TaggedPtrUnion, (Self),
-   ([](auto &self, auto ret, auto &&visit) -> typename decltype(ret)::type {
-     using Union = std::remove_cvref_t<decltype(self)>;
-     switch (self.kind) {
-     case Union::Kind::value:
-       return visit(*self.value);
-     case Union::Kind::other:
-       if constexpr (std::is_void_v<typename decltype(ret)::type>)
-         return;
-       else
-         return 0;
-     }
-     if constexpr (std::is_void_v<typename decltype(ret)::type>)
-       return;
-     else
-       return 0;
-   }))
-))
+   (int, area, (Self)), 
+   (void, scale, (Self *, int))
+  ), (
+   (member, Box, (Self), inner),                                              
+   (deref, std::shared_ptr, (Self)),                                          
+   (optional, std::optional, (Self), zero_if_missing),                        
+   (nullable, MaybePtr, (Self), zero_if_missing),                             
+   (accessor, (requires, HasGet, HasInner), (Self), access_via_get),          
+   (iterate, std::array, (Self, N), (reduce, 0, sum_reduce)),                 
+   (iterate_ptr, Slice, (Self), ptr, count, (reduce, 0, sum_reduce)),         
+   (variant, zero_if_missing),                                                
+   (tag_union, TaggedPtrUnion, (Self), visit_tagged_ptr_union)
+  )
+)
 
 // static_trait(...)
 // no vtable/::Dyn generation --
 // allows first type arg in return type 
 // or after first function arg
 // no "Self" to speak of
-static_trait(Test, (T), (
-  (type, Factor),
-  (T, test, (T, typename Impl<T>::Factor))
-))
+#define TEST_METHODS ((type, Factor), (T, test, (T, typename Impl<T>::Factor)))
+
+static_trait(Test, (T), TEST_METHODS)
 
 
-// C++ 20
-// struct Circle : Shape::Mixin<Circle> { 
-//   int r;
-// };
-
-// C++ 23
-struct Circle : Shape::Mixin { 
+#if (defined(__cpp_explicit_this_parameter) && __cpp_explicit_this_parameter >= 202110L) || defined(__clang__)
+struct Circle : Shape::Mixin {
   int r;
 };
+#else
+struct Circle : Shape::Mixin<Circle> {
+  int r;
+};
+#endif
 
 template <> struct Shape::Impl<Circle> {
   static int area(Circle c) { return c.r * c.r; }
@@ -163,43 +159,31 @@ static_assert(Shape::Trait<Shape::Dyn>);
 static_assert(Shape::Trait<std::array<Shape::Dyn, 3>>);
 static_assert(Shape::Trait<Box<Shape::Dyn>>);
 
-trait(AreaMap, (Self), (
-  (std::vector<int>, collect, (Self))
-), (
-  (iterate, std::array, (Self, N),
-   (map, std::vector<int>{},
-    ([](auto acc, auto &elem, auto values) {
-      acc.insert(acc.end(), values.begin(), values.end());
-      acc.push_back(elem.r);
-      return acc;
-    })))
-))
+#define DOUBLE_MAP_METHODS ((Self, doubled, (Self)))
+#define DOUBLE_MAP_RULES ((iterate, std::array, (Self, N), (map)))
 
-trait(RadiusMap, (Self), (
-  (std::vector<int>, collect, (Self *))
-), (
-  (iterate_ptr, Slice, (Self), ptr, count,
-   (map, std::vector<int>{},
-    ([](auto acc, auto *elem, auto values) {
-      acc.insert(acc.end(), values.begin(), values.end());
-      elem->r += 10;
-      acc.push_back(elem->r);
-      return acc;
-    })))
-))
+trait(DoubleMap, (Self), DOUBLE_MAP_METHODS, DOUBLE_MAP_RULES)
 
-template <> struct AreaMap::Impl<Circle> {
-  static std::vector<int> collect(Circle c) { return {c.r * c.r}; }
+#define SCALE_MAP_METHODS ((void, scale, (Self *, int)))
+#define SCALE_MAP_RULES ((iterate_ptr, Slice, (Self), ptr, count, (map)))
+
+trait(ScaleMap, (Self), SCALE_MAP_METHODS, SCALE_MAP_RULES)
+
+template <> struct DoubleMap::Impl<Circle> {
+  static Circle doubled(Circle c) {
+    c.r *= 2;
+    return c;
+  }
 };
 
-template <> struct RadiusMap::Impl<Circle> {
-  static std::vector<int> collect(Circle *c) { return {c->r}; }
+template <> struct ScaleMap::Impl<Circle> {
+  static void scale(Circle *c, int f) { c->r *= f; }
 };
 
-static_assert(AreaMap::Trait<Circle>);
-static_assert(AreaMap::Trait<std::array<Circle, 2>>);
-static_assert(RadiusMap::Trait<Circle>);
-static_assert(RadiusMap::Trait<Slice<Circle>>);
+static_assert(DoubleMap::Trait<Circle>);
+static_assert(DoubleMap::Trait<std::array<Circle, 2>>);
+static_assert(ScaleMap::Trait<Circle>);
+static_assert(ScaleMap::Trait<Slice<Circle>>);
  
 // 2-param: Into<T>
 // ducktyped_trait = allow C/C++ implicit conversions
@@ -208,9 +192,9 @@ static_assert(RadiusMap::Trait<Slice<Circle>>);
 // - const T -> T
 // - T -> T &
 // try turning this into a regular trait and seeing what happens!
-ducktyped_trait(Into, (Self, T), (
-  (T, into, (Self))
-))
+#define INTO_METHODS ((T, into, (Self)))
+
+ducktyped_trait(Into, (Self, T), INTO_METHODS)
 
 struct MyFloat {
   float v;
@@ -280,18 +264,16 @@ int main() {
   std::cout << Shape::area(slice) << "\n"; // 45
 
   std::array<Circle, 2> mapped = {Circle{.r = 2}, Circle{.r = 3}};
-  auto mapped_areas = AreaMap::collect(mapped);
-  std::cout << mapped_areas[0] << " " << mapped_areas[1] << " "
-            << mapped_areas[2] << " " << mapped_areas[3] << "\n"; // 4 2 9 3
+  auto doubled = DoubleMap::doubled(mapped);
+  std::cout << mapped[0].r << " " << mapped[1].r << "\n"; // 2 3
+  std::cout << doubled[0].r << " " << doubled[1].r << "\n"; // 4 6
 
   Circle mapped_pair[2];
   mapped_pair[0].r = 1;
   mapped_pair[1].r = 2;
   Slice<Circle> mapped_slice{.ptr = mapped_pair, .count = 2};
-  auto mapped_radii = RadiusMap::collect(&mapped_slice);
-  std::cout << mapped_radii[0] << " " << mapped_radii[1] << " "
-            << mapped_radii[2] << " " << mapped_radii[3] << "\n"; // 1 11 2 12
-  std::cout << mapped_pair[0].r << " " << mapped_pair[1].r << "\n"; // 11 12
+  ScaleMap::scale(&mapped_slice, 10);
+  std::cout << mapped_pair[0].r << " " << mapped_pair[1].r << "\n"; // 10 20
  
   std::variant<Circle, Rect> vr = r;
   std::cout << Shape::area(vr) << "\n"; // 12
