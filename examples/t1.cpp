@@ -17,6 +17,9 @@ template <typename T> struct AccessBox {
   const T &get() const { return inner; }
 };
 
+template <typename T> concept HasGet = requires(T t) { t.get(); };
+template <typename T> concept HasInner = requires(T t) { t.inner; };
+
 template <typename T> struct MaybePtr {
   T *ptr;
   explicit operator bool() const { return ptr != nullptr; }
@@ -65,7 +68,7 @@ trait(Shape, (Self), (
      else
        return 0;
    })),
-  (accessor, AccessBox, (Self),
+  (accessor, (requires, HasGet, HasInner), (Self),
    ([](auto &box) -> decltype(auto) { return box.get(); })),
   (iterate, std::array, (Self, N),
    (reduce, 0, ([](auto acc, auto value) { return acc + value; }))),

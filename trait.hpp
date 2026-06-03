@@ -131,6 +131,11 @@ constexpr auto iterate_reduce(Iterable &&iterable, Acc acc, Func &&func) {
 #define EXPAND2(...) EXPAND3(EXPAND3(EXPAND3(EXPAND3(__VA_ARGS__))))
 #define EXPAND3(...) EXPAND4(EXPAND4(EXPAND4(EXPAND4(__VA_ARGS__))))
 #define EXPAND4(...) __VA_ARGS__
+#define PP_CHECK_N(x, n, ...) n
+#define PP_CHECK(...) PP_CHECK_N(__VA_ARGS__, 0)
+#define PP_PROBE(...) ~, 1
+#define PP_IS_PAREN(x) PP_CHECK(PP_IS_PAREN_PROBE x)
+#define PP_IS_PAREN_PROBE(...) PP_PROBE(__VA_ARGS__)
 
 #define FOR_EACH(macro, ...)                                                   \
   __VA_OPT__(EXPAND(FOR_EACH_HELPER(macro, __VA_ARGS__)))
@@ -582,6 +587,39 @@ constexpr auto iterate_reduce(Iterable &&iterable, Acc acc, Func &&func) {
 #define DERIVE_WRAPPER_TYPE_ARGS_2(_SelfArg, A1) TraitDerived, A1
 #define DERIVE_WRAPPER_TYPE_ARGS_3(_SelfArg, A1, A2) TraitDerived, A1, A2
 
+#define DERIVE_TARGET_TEMPLATE(NS, Target, ArgsTuple)                          \
+  DERIVE_TARGET_TEMPLATE_I(PP_IS_PAREN(Target), NS, Target, ArgsTuple)
+#define DERIVE_TARGET_TEMPLATE_I(IsParen, NS, Target, ArgsTuple)               \
+  DERIVE_TARGET_TEMPLATE_II(IsParen, NS, Target, ArgsTuple)
+#define DERIVE_TARGET_TEMPLATE_II(IsParen, NS, Target, ArgsTuple)              \
+  DERIVE_TARGET_TEMPLATE_##IsParen(NS, Target, ArgsTuple)
+#define DERIVE_TARGET_TEMPLATE_0(NS, Target, ArgsTuple)                        \
+  DERIVE_WRAPPER_TEMPLATE_DECL(ArgsTuple)                                      \
+    requires ::NS::Trait<TraitDerived>
+#define DERIVE_TARGET_TEMPLATE_1(NS, Target, ArgsTuple)                        \
+  template <typename TraitDerived>                                             \
+    requires DERIVE_TARGET_REQUIRES(Target, TraitDerived)
+
+#define DERIVE_TARGET_SELF(Target, ArgsTuple)                                  \
+  DERIVE_TARGET_SELF_I(PP_IS_PAREN(Target), Target, ArgsTuple)
+#define DERIVE_TARGET_SELF_I(IsParen, Target, ArgsTuple)                       \
+  DERIVE_TARGET_SELF_II(IsParen, Target, ArgsTuple)
+#define DERIVE_TARGET_SELF_II(IsParen, Target, ArgsTuple)                      \
+  DERIVE_TARGET_SELF_##IsParen(Target, ArgsTuple)
+#define DERIVE_TARGET_SELF_0(Target, ArgsTuple)                                \
+  Target<DERIVE_WRAPPER_TYPE_ARGS(ArgsTuple)>
+#define DERIVE_TARGET_SELF_1(Target, ArgsTuple) TraitDerived
+
+#define DERIVE_TARGET_REQUIRES(Target, SelfType)                                  \
+  DERIVE_TARGET_REQUIRES_I(SelfType, UNWRAP(Target))
+#define DERIVE_TARGET_REQUIRES_I(SelfType, ...)                                \
+  DERIVE_TARGET_REQUIRES_II(SelfType, __VA_ARGS__)
+#define DERIVE_TARGET_REQUIRES_II(SelfType, Kind, ...)                         \
+  DERIVE_TARGET_REQUIRES_##Kind(SelfType, __VA_ARGS__)
+#define DERIVE_TARGET_REQUIRES_requires(SelfType, ...)                         \
+  true FOR_EACH_WITH(DERIVE_TARGET_REQUIRES_AND, SelfType, __VA_ARGS__)
+#define DERIVE_TARGET_REQUIRES_AND(SelfType, Concept) && Concept<SelfType>
+
 #define DERIVE_MEMBER_METHOD4_TUPLE(NS, Field, M)                              \
   DERIVE_MEMBER_METHOD4_APPLY(NS, Field, UNWRAP(M))
 #define DERIVE_MEMBER_METHOD4_APPLY(NS, Field, ...)                            \
@@ -873,11 +911,10 @@ constexpr auto iterate_reduce(Iterable &&iterable, Acc acc, Func &&func) {
 #define DERIVE_RULE_MEMBER_II(N, NS, MethodsTuple, Wrapper, ArgsTuple, Field)  \
   DERIVE_RULE_MEMBER_##N(NS, MethodsTuple, Wrapper, ArgsTuple, Field)
 
-#define DERIVE_RULE_MEMBER_1(NS, MethodsTuple, Wrapper, ArgsTuple, Field)      \
-  DERIVE_WRAPPER_TEMPLATE_DECL(ArgsTuple)                                      \
-    requires ::NS::Trait<TraitDerived>                                         \
-  struct NS::Impl<Wrapper<DERIVE_WRAPPER_TYPE_ARGS(ArgsTuple)>> {              \
-    using Self = Wrapper<DERIVE_WRAPPER_TYPE_ARGS(ArgsTuple)>;                 \
+#define DERIVE_RULE_MEMBER_1(NS, MethodsTuple, Target, ArgsTuple, Field)       \
+  DERIVE_TARGET_TEMPLATE(NS, Target, ArgsTuple)                                \
+  struct NS::Impl<DERIVE_TARGET_SELF(Target, ArgsTuple)> {                     \
+    using Self = DERIVE_TARGET_SELF(Target, ArgsTuple);                        \
     FOR_EACH_WITH2(DERIVE_MEMBER_METHOD4_TUPLE, NS, Field,                     \
                    UNWRAP_I MethodsTuple)                                      \
   };
@@ -903,11 +940,10 @@ constexpr auto iterate_reduce(Iterable &&iterable, Acc acc, Func &&func) {
                                Reducer)                                         \
   DERIVE_RULE_ITERATE_##N(NS, MethodsTuple, Wrapper, ArgsTuple, Reducer)
 
-#define DERIVE_RULE_ITERATE_1(NS, MethodsTuple, Wrapper, ArgsTuple, Reducer)   \
-  DERIVE_WRAPPER_TEMPLATE_DECL(ArgsTuple)                                      \
-    requires ::NS::Trait<TraitDerived>                                         \
-  struct NS::Impl<Wrapper<DERIVE_WRAPPER_TYPE_ARGS(ArgsTuple)>> {              \
-    using Self = Wrapper<DERIVE_WRAPPER_TYPE_ARGS(ArgsTuple)>;                 \
+#define DERIVE_RULE_ITERATE_1(NS, MethodsTuple, Target, ArgsTuple, Reducer)    \
+  DERIVE_TARGET_TEMPLATE(NS, Target, ArgsTuple)                                \
+  struct NS::Impl<DERIVE_TARGET_SELF(Target, ArgsTuple)> {                     \
+    using Self = DERIVE_TARGET_SELF(Target, ArgsTuple);                        \
     FOR_EACH_WITH2(DERIVE_ITERATE_METHOD4_TUPLE, NS, Reducer,                  \
                    UNWRAP_I MethodsTuple)                                      \
   };
@@ -927,11 +963,10 @@ constexpr auto iterate_reduce(Iterable &&iterable, Acc acc, Func &&func) {
   DERIVE_RULE_DEREF_II(N, NS, MethodsTuple, Wrapper, ArgsTuple)
 #define DERIVE_RULE_DEREF_II(N, NS, MethodsTuple, Wrapper, ArgsTuple)          \
   DERIVE_RULE_DEREF_##N(NS, MethodsTuple, Wrapper, ArgsTuple)
-#define DERIVE_RULE_DEREF_1(NS, MethodsTuple, Wrapper, ArgsTuple)              \
-  DERIVE_WRAPPER_TEMPLATE_DECL(ArgsTuple)                                      \
-    requires ::NS::Trait<TraitDerived>                                         \
-  struct NS::Impl<Wrapper<DERIVE_WRAPPER_TYPE_ARGS(ArgsTuple)>> {              \
-    using Self = Wrapper<DERIVE_WRAPPER_TYPE_ARGS(ArgsTuple)>;                 \
+#define DERIVE_RULE_DEREF_1(NS, MethodsTuple, Target, ArgsTuple)               \
+  DERIVE_TARGET_TEMPLATE(NS, Target, ArgsTuple)                                \
+  struct NS::Impl<DERIVE_TARGET_SELF(Target, ArgsTuple)> {                     \
+    using Self = DERIVE_TARGET_SELF(Target, ArgsTuple);                        \
     FOR_EACH_WITH(DERIVE_DEREF_METHOD4_TUPLE, NS, UNWRAP_I MethodsTuple)       \
   };
 #define DERIVE_RULE_DEREF_2(NS, MethodsTuple, Wrapper, ArgsTuple)              \
@@ -951,11 +986,10 @@ constexpr auto iterate_reduce(Iterable &&iterable, Acc acc, Func &&func) {
 #define DERIVE_RULE_ACCESSOR_II(N, NS, MethodsTuple, Wrapper, ArgsTuple,       \
                                 Accessor)                                       \
   DERIVE_RULE_ACCESSOR_##N(NS, MethodsTuple, Wrapper, ArgsTuple, Accessor)
-#define DERIVE_RULE_ACCESSOR_1(NS, MethodsTuple, Wrapper, ArgsTuple, Accessor) \
-  DERIVE_WRAPPER_TEMPLATE_DECL(ArgsTuple)                                      \
-    requires ::NS::Trait<TraitDerived>                                         \
-  struct NS::Impl<Wrapper<DERIVE_WRAPPER_TYPE_ARGS(ArgsTuple)>> {              \
-    using Self = Wrapper<DERIVE_WRAPPER_TYPE_ARGS(ArgsTuple)>;                 \
+#define DERIVE_RULE_ACCESSOR_1(NS, MethodsTuple, Target, ArgsTuple, Accessor)  \
+  DERIVE_TARGET_TEMPLATE(NS, Target, ArgsTuple)                                \
+  struct NS::Impl<DERIVE_TARGET_SELF(Target, ArgsTuple)> {                     \
+    using Self = DERIVE_TARGET_SELF(Target, ArgsTuple);                        \
     FOR_EACH_WITH2(DERIVE_ACCESSOR_METHOD4_TUPLE, NS, Accessor,                \
                    UNWRAP_I MethodsTuple)                                      \
   };
@@ -982,11 +1016,10 @@ constexpr auto iterate_reduce(Iterable &&iterable, Acc acc, Func &&func) {
 #define DERIVE_RULE_OPTIONAL_II(N, NS, MethodsTuple, Wrapper, ArgsTuple,       \
                                 Fallback)                                       \
   DERIVE_RULE_OPTIONAL_##N(NS, MethodsTuple, Wrapper, ArgsTuple, Fallback)
-#define DERIVE_RULE_OPTIONAL_1(NS, MethodsTuple, Wrapper, ArgsTuple, Fallback) \
-  DERIVE_WRAPPER_TEMPLATE_DECL(ArgsTuple)                                      \
-    requires ::NS::Trait<TraitDerived>                                         \
-  struct NS::Impl<Wrapper<DERIVE_WRAPPER_TYPE_ARGS(ArgsTuple)>> {              \
-    using Self = Wrapper<DERIVE_WRAPPER_TYPE_ARGS(ArgsTuple)>;                 \
+#define DERIVE_RULE_OPTIONAL_1(NS, MethodsTuple, Target, ArgsTuple, Fallback)  \
+  DERIVE_TARGET_TEMPLATE(NS, Target, ArgsTuple)                                \
+  struct NS::Impl<DERIVE_TARGET_SELF(Target, ArgsTuple)> {                     \
+    using Self = DERIVE_TARGET_SELF(Target, ArgsTuple);                        \
     FOR_EACH_WITH2(DERIVE_OPTIONAL_METHOD4_TUPLE, NS, Fallback,                \
                    UNWRAP_I MethodsTuple)                                      \
   };
@@ -1024,12 +1057,11 @@ constexpr auto iterate_reduce(Iterable &&iterable, Acc acc, Func &&func) {
                                    PtrField, CountField, Reducer)               \
   DERIVE_RULE_ITERATE_PTR_##N(NS, MethodsTuple, Wrapper, ArgsTuple, PtrField,  \
                               CountField, Reducer)
-#define DERIVE_RULE_ITERATE_PTR_1(NS, MethodsTuple, Wrapper, ArgsTuple,        \
+#define DERIVE_RULE_ITERATE_PTR_1(NS, MethodsTuple, Target, ArgsTuple,         \
                                   PtrField, CountField, Reducer)                \
-  DERIVE_WRAPPER_TEMPLATE_DECL(ArgsTuple)                                      \
-    requires ::NS::Trait<TraitDerived>                                         \
-  struct NS::Impl<Wrapper<DERIVE_WRAPPER_TYPE_ARGS(ArgsTuple)>> {              \
-    using Self = Wrapper<DERIVE_WRAPPER_TYPE_ARGS(ArgsTuple)>;                 \
+  DERIVE_TARGET_TEMPLATE(NS, Target, ArgsTuple)                                \
+  struct NS::Impl<DERIVE_TARGET_SELF(Target, ArgsTuple)> {                     \
+    using Self = DERIVE_TARGET_SELF(Target, ArgsTuple);                        \
     FOR_EACH_WITH4(DERIVE_ITERATE_PTR_METHOD4_TUPLE, NS, PtrField, CountField, \
                    Reducer, UNWRAP_I MethodsTuple)                             \
   };
@@ -1057,11 +1089,10 @@ constexpr auto iterate_reduce(Iterable &&iterable, Acc acc, Func &&func) {
 #define DERIVE_RULE_TAG_UNION_II(N, NS, MethodsTuple, Wrapper, ArgsTuple,      \
                                  Visitor)                                       \
   DERIVE_RULE_TAG_UNION_##N(NS, MethodsTuple, Wrapper, ArgsTuple, Visitor)
-#define DERIVE_RULE_TAG_UNION_1(NS, MethodsTuple, Wrapper, ArgsTuple, Visitor) \
-  DERIVE_WRAPPER_TEMPLATE_DECL(ArgsTuple)                                      \
-    requires ::NS::Trait<TraitDerived>                                         \
-  struct NS::Impl<Wrapper<DERIVE_WRAPPER_TYPE_ARGS(ArgsTuple)>> {              \
-    using Self = Wrapper<DERIVE_WRAPPER_TYPE_ARGS(ArgsTuple)>;                 \
+#define DERIVE_RULE_TAG_UNION_1(NS, MethodsTuple, Target, ArgsTuple, Visitor)  \
+  DERIVE_TARGET_TEMPLATE(NS, Target, ArgsTuple)                                \
+  struct NS::Impl<DERIVE_TARGET_SELF(Target, ArgsTuple)> {                     \
+    using Self = DERIVE_TARGET_SELF(Target, ArgsTuple);                        \
     FOR_EACH_WITH2(DERIVE_TAG_UNION_METHOD4_TUPLE, NS, Visitor,                \
                    UNWRAP_I MethodsTuple)                                      \
   };
