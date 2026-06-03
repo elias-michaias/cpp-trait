@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <variant>
+#include <vector>
 #include "../trait.hpp"
 
 template <typename T> struct Box {
@@ -162,6 +163,44 @@ static_assert(Shape::Trait<Shape::Dyn>);
 static_assert(Shape::Trait<std::array<Shape::Dyn, 3>>);
 static_assert(Shape::Trait<Box<Shape::Dyn>>);
 
+trait(AreaMap, (Self), (
+  (std::vector<int>, collect, (Self))
+), (
+  (iterate, std::array, (Self, N),
+   (map, std::vector<int>{},
+    ([](auto acc, auto &elem, auto values) {
+      acc.insert(acc.end(), values.begin(), values.end());
+      acc.push_back(elem.r);
+      return acc;
+    })))
+))
+
+trait(RadiusMap, (Self), (
+  (std::vector<int>, collect, (Self *))
+), (
+  (iterate_ptr, Slice, (Self), ptr, count,
+   (map, std::vector<int>{},
+    ([](auto acc, auto *elem, auto values) {
+      acc.insert(acc.end(), values.begin(), values.end());
+      elem->r += 10;
+      acc.push_back(elem->r);
+      return acc;
+    })))
+))
+
+template <> struct AreaMap::Impl<Circle> {
+  static std::vector<int> collect(Circle c) { return {c.r * c.r}; }
+};
+
+template <> struct RadiusMap::Impl<Circle> {
+  static std::vector<int> collect(Circle *c) { return {c->r}; }
+};
+
+static_assert(AreaMap::Trait<Circle>);
+static_assert(AreaMap::Trait<std::array<Circle, 2>>);
+static_assert(RadiusMap::Trait<Circle>);
+static_assert(RadiusMap::Trait<Slice<Circle>>);
+ 
 // 2-param: Into<T>
 // ducktyped_trait = allow C/C++ implicit conversions
 // examples: 
@@ -240,6 +279,20 @@ int main() {
   Shape::scale(&slice, 3);
   std::cout << Shape::area(slice) << "\n"; // 45
 
+  std::array<Circle, 2> mapped = {Circle{.r = 2}, Circle{.r = 3}};
+  auto mapped_areas = AreaMap::collect(mapped);
+  std::cout << mapped_areas[0] << " " << mapped_areas[1] << " "
+            << mapped_areas[2] << " " << mapped_areas[3] << "\n"; // 4 2 9 3
+
+  Circle mapped_pair[2];
+  mapped_pair[0].r = 1;
+  mapped_pair[1].r = 2;
+  Slice<Circle> mapped_slice{.ptr = mapped_pair, .count = 2};
+  auto mapped_radii = RadiusMap::collect(&mapped_slice);
+  std::cout << mapped_radii[0] << " " << mapped_radii[1] << " "
+            << mapped_radii[2] << " " << mapped_radii[3] << "\n"; // 1 11 2 12
+  std::cout << mapped_pair[0].r << " " << mapped_pair[1].r << "\n"; // 11 12
+ 
   std::variant<Circle, Rect> vr = r;
   std::cout << Shape::area(vr) << "\n"; // 12
   Shape::scale(&vr, 2);

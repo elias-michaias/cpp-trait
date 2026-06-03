@@ -738,6 +738,20 @@ constexpr auto iterate_reduce(Iterable &&iterable, Acc acc, Func &&func) {
     }                                                                          \
     return static_cast<Ret>(total);                                            \
   }
+#define DERIVE_ITERATE_PTR_REDUCER_map(NS, Ret, Name, Params, Range, Init,     \
+                                       Func)                                     \
+  {                                                                            \
+    auto mapped = Init;                                                        \
+    for (decltype(Range.second) i = 0; i < Range.second; ++i) {                \
+      auto &elem = Range.first[i];                                             \
+      auto &&receiver =                                                        \
+          ::gen_interface_detail::iter_receiver<FIRST(Params)>(elem);          \
+      mapped =                                                                 \
+          (Func)(std::move(mapped), receiver,                                  \
+                 ::NS::Name(receiver CALL_EXTRA_ARGS(Params)));                \
+    }                                                                          \
+    return static_cast<Ret>(mapped);                                           \
+  }
 
 #define DERIVE_TAG_UNION_METHOD4_TUPLE(NS, Visitor, M)                         \
   DERIVE_TAG_UNION_METHOD4_APPLY(NS, Visitor, UNWRAP(M))
@@ -790,6 +804,18 @@ constexpr auto iterate_reduce(Iterable &&iterable, Acc acc, Func &&func) {
                            elem)                                               \
                            CALL_EXTRA_ARGS(Params)));                          \
       }));
+#define DERIVE_ITERATE_REDUCER_map(NS, Ret, Name, Params, Init, Func)          \
+  {                                                                            \
+    auto mapped = Init;                                                        \
+    for (auto &elem : ::gen_interface_detail::iterable_from(self)) {           \
+      auto &&receiver =                                                        \
+         ::gen_interface_detail::iter_receiver<FIRST(Params)>(elem);          \
+      mapped =                                                                 \
+         (Func)(std::move(mapped), receiver,                                  \
+                ::NS::Name(receiver CALL_EXTRA_ARGS(Params)));                \
+    }                                                                          \
+    return static_cast<Ret>(mapped);                                           \
+  }
 
 #define DERIVE_RULES(NS, TP, MethodsTuple, RulesTuple)                         \
   DERIVE_RULES_I(VA_COUNT(UNWRAP_I RulesTuple), NS, TP, MethodsTuple,          \
