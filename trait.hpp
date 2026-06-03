@@ -3,6 +3,8 @@
 #define TRAIT_GENERATION_H
 
 #include <type_traits>
+#include <utility>
+#include <variant>
 
 namespace gen_interface_detail {
 
@@ -12,6 +14,54 @@ constexpr decltype(auto) receiver_from(void *p) {
     return static_cast<Receiver>(p);
   else
     return *static_cast<std::remove_reference_t<Receiver> *>(p);
+}
+
+template <class Receiver, class Member>
+constexpr decltype(auto) forward_member(Receiver &&receiver, Member member) {
+  using ReceiverT = std::remove_reference_t<Receiver>;
+  if constexpr (std::is_pointer_v<ReceiverT>)
+    return &(receiver->*member);
+  else
+    return (std::forward<Receiver>(receiver).*member);
+}
+
+template <class Receiver>
+constexpr decltype(auto) iterable_from(Receiver &&receiver) {
+  using ReceiverT = std::remove_reference_t<Receiver>;
+  if constexpr (std::is_pointer_v<ReceiverT>)
+    return *receiver;
+  else
+    return (std::forward<Receiver>(receiver));
+}
+
+template <class Receiver, class Elem>
+constexpr decltype(auto) iter_receiver(Elem &elem) {
+  if constexpr (std::is_pointer_v<Receiver>)
+    return &elem;
+  else
+    return (elem);
+}
+
+template <class Receiver, class Elem>
+constexpr decltype(auto) variant_receiver(Elem &elem) {
+  if constexpr (std::is_pointer_v<Receiver>)
+    return &elem;
+  else
+    return (elem);
+}
+
+template <class Ret>
+constexpr void iterate_each_requires_void() {
+  static_assert(std::is_void_v<Ret>,
+                "iterate without a reducer only supports void-returning trait "
+                "methods");
+}
+
+template <class Iterable, class Acc, class Func>
+constexpr auto iterate_reduce(Iterable &&iterable, Acc acc, Func &&func) {
+  for (auto &elem : iterable)
+    acc = func(std::move(acc), elem);
+  return acc;
 }
 
 } // namespace gen_interface_detail
@@ -440,6 +490,242 @@ constexpr decltype(auto) receiver_from(void *p) {
   FREE_FUNC4(TP, Ret, Name, Params)
 
 //--------------------------------------------------------------------
+//  Derived impl helpers
+//--------------------------------------------------------------------
+#define DERIVE_WRAPPER_TEMPLATE_DECL(ArgsTuple)                                 \
+  DERIVE_WRAPPER_TEMPLATE_DECL_I(VA_COUNT(UNWRAP(ArgsTuple)), UNWRAP(ArgsTuple))
+#define DERIVE_WRAPPER_TEMPLATE_DECL_I(N, ...)                                  \
+  DERIVE_WRAPPER_TEMPLATE_DECL_II(N, __VA_ARGS__)
+#define DERIVE_WRAPPER_TEMPLATE_DECL_II(N, ...)                                 \
+  DERIVE_WRAPPER_TEMPLATE_DECL_##N(__VA_ARGS__)
+#define DERIVE_WRAPPER_TEMPLATE_DECL_1(_SelfArg) template <typename TraitDerived>
+#define DERIVE_WRAPPER_TEMPLATE_DECL_2(_SelfArg, A1)                            \
+  template <typename TraitDerived, auto A1>
+#define DERIVE_WRAPPER_TEMPLATE_DECL_3(_SelfArg, A1, A2)                        \
+  template <typename TraitDerived, auto A1, auto A2>
+
+#define DERIVE_WRAPPER_TYPE_ARGS(ArgsTuple)                                     \
+  DERIVE_WRAPPER_TYPE_ARGS_I(VA_COUNT(UNWRAP(ArgsTuple)), UNWRAP(ArgsTuple))
+#define DERIVE_WRAPPER_TYPE_ARGS_I(N, ...) DERIVE_WRAPPER_TYPE_ARGS_II(N, __VA_ARGS__)
+#define DERIVE_WRAPPER_TYPE_ARGS_II(N, ...) DERIVE_WRAPPER_TYPE_ARGS_##N(__VA_ARGS__)
+#define DERIVE_WRAPPER_TYPE_ARGS_1(_SelfArg) TraitDerived
+#define DERIVE_WRAPPER_TYPE_ARGS_2(_SelfArg, A1) TraitDerived, A1
+#define DERIVE_WRAPPER_TYPE_ARGS_3(_SelfArg, A1, A2) TraitDerived, A1, A2
+
+#define DERIVE_MEMBER_METHOD4_TUPLE(NS, Field, M)                              \
+  DERIVE_MEMBER_METHOD4_APPLY(NS, Field, UNWRAP(M))
+#define DERIVE_MEMBER_METHOD4_APPLY(NS, Field, ...)                            \
+  DERIVE_MEMBER_METHOD4(NS, Field, __VA_ARGS__)
+#define DERIVE_MEMBER_METHOD4(NS, Field, Ret, Name, Params)                    \
+  static Ret Name(FUNC_PARAMS(Params)) {                                       \
+    if constexpr (std::is_void_v<Ret>) {                                       \
+      ::NS::Name(::gen_interface_detail::forward_member(self, &Self::Field)    \
+                     CALL_EXTRA_ARGS(Params));                                  \
+    } else {                                                                   \
+      return ::NS::Name(::gen_interface_detail::forward_member(self,           \
+                                                               &Self::Field)   \
+                            CALL_EXTRA_ARGS(Params));                           \
+    }                                                                          \
+  }
+
+#define DERIVE_ITERATE_METHOD4_TUPLE(NS, ReducerSpec, M)                       \
+  DERIVE_ITERATE_METHOD4_APPLY(NS, ReducerSpec, UNWRAP(M))
+#define DERIVE_ITERATE_METHOD4_APPLY(NS, ReducerSpec, ...)                     \
+  DERIVE_ITERATE_METHOD4(NS, ReducerSpec, __VA_ARGS__)
+#define DERIVE_ITERATE_METHOD4(NS, ReducerSpec, Ret, Name, Params)             \
+  static Ret Name(FUNC_PARAMS(Params)) {                                       \
+    if constexpr (std::is_void_v<Ret>) {                                       \
+      for (auto &elem : ::gen_interface_detail::iterable_from(self))           \
+        ::NS::Name(                                                            \
+            ::gen_interface_detail::iter_receiver<FIRST(Params)>(elem)         \
+                CALL_EXTRA_ARGS(Params));                                      \
+    } else {                                                                   \
+      DERIVE_ITERATE_REDUCER(NS, Ret, Name, Params, ReducerSpec)               \
+    }                                                                          \
+  }
+
+#define DERIVE_ITERATE_REDUCER(NS, Ret, Name, Params, ReducerSpec)             \
+  DERIVE_ITERATE_REDUCER_I(NS, Ret, Name, Params, UNWRAP(ReducerSpec))
+#define DERIVE_ITERATE_REDUCER_I(NS, Ret, Name, Params, ...)                   \
+  DERIVE_ITERATE_REDUCER_II(NS, Ret, Name, Params, __VA_ARGS__)
+#define DERIVE_ITERATE_REDUCER_II(NS, Ret, Name, Params, Kind, ...)            \
+  DERIVE_ITERATE_REDUCER_##Kind(NS, Ret, Name, Params, __VA_ARGS__)
+
+#define DERIVE_ITERATE_REDUCER_each(NS, Ret, Name, Params, ...)                \
+  ::gen_interface_detail::iterate_each_requires_void<Ret>();
+#define DERIVE_ITERATE_REDUCER_reduce(NS, Ret, Name, Params, Init, Func)       \
+  return static_cast<Ret>(::gen_interface_detail::iterate_reduce(              \
+      ::gen_interface_detail::iterable_from(self),                             \
+      Init,                                                                    \
+      [&](auto acc, auto &elem) {                                              \
+        return (Func)(                                                         \
+            std::move(acc),                                                    \
+            ::NS::Name(::gen_interface_detail::iter_receiver<FIRST(Params)>(   \
+                           elem)                                               \
+                           CALL_EXTRA_ARGS(Params)));                          \
+      }));
+
+#define DERIVE_RULES(NS, TP, MethodsTuple, RulesTuple)                         \
+  DERIVE_RULES_I(VA_COUNT(UNWRAP_I RulesTuple), NS, TP, MethodsTuple,          \
+                 UNWRAP_I RulesTuple)
+#define DERIVE_RULES_I(N, NS, TP, MethodsTuple, ...)                           \
+  DERIVE_RULES_II(N, NS, TP, MethodsTuple, __VA_ARGS__)
+#define DERIVE_RULES_II(N, NS, TP, MethodsTuple, ...)                          \
+  DERIVE_RULES_##N(NS, TP, MethodsTuple, __VA_ARGS__)
+#define DERIVE_RULES_1(NS, TP, MethodsTuple, R1)                               \
+  DERIVE_RULE_TUPLE(NS, TP, MethodsTuple, R1)
+#define DERIVE_RULES_2(NS, TP, MethodsTuple, R1, R2)                           \
+  DERIVE_RULE_TUPLE(NS, TP, MethodsTuple, R1)                                  \
+  DERIVE_RULE_TUPLE(NS, TP, MethodsTuple, R2)
+#define DERIVE_RULES_3(NS, TP, MethodsTuple, R1, R2, R3)                       \
+  DERIVE_RULE_TUPLE(NS, TP, MethodsTuple, R1)                                  \
+  DERIVE_RULE_TUPLE(NS, TP, MethodsTuple, R2)                                  \
+  DERIVE_RULE_TUPLE(NS, TP, MethodsTuple, R3)
+#define DERIVE_RULES_4(NS, TP, MethodsTuple, R1, R2, R3, R4)                   \
+  DERIVE_RULE_TUPLE(NS, TP, MethodsTuple, R1)                                  \
+  DERIVE_RULE_TUPLE(NS, TP, MethodsTuple, R2)                                  \
+  DERIVE_RULE_TUPLE(NS, TP, MethodsTuple, R3)                                  \
+  DERIVE_RULE_TUPLE(NS, TP, MethodsTuple, R4)
+#define DERIVE_RULES_5(NS, TP, MethodsTuple, R1, R2, R3, R4, R5)               \
+  DERIVE_RULE_TUPLE(NS, TP, MethodsTuple, R1)                                  \
+  DERIVE_RULE_TUPLE(NS, TP, MethodsTuple, R2)                                  \
+  DERIVE_RULE_TUPLE(NS, TP, MethodsTuple, R3)                                  \
+  DERIVE_RULE_TUPLE(NS, TP, MethodsTuple, R4)                                  \
+  DERIVE_RULE_TUPLE(NS, TP, MethodsTuple, R5)
+
+#define DERIVE_RULE_TUPLE(NS, TP, MethodsTuple, Rule)                          \
+  DERIVE_RULE_TUPLE_I(NS, TP, MethodsTuple, UNWRAP(Rule))
+#define DERIVE_RULE_TUPLE_I(NS, TP, MethodsTuple, ...)                         \
+  DERIVE_RULE_TUPLE_II(VA_COUNT(__VA_ARGS__), NS, TP, MethodsTuple, __VA_ARGS__)
+#define DERIVE_RULE_TUPLE_II(N, NS, TP, MethodsTuple, ...)                     \
+  DERIVE_RULE_TUPLE_III(N, NS, TP, MethodsTuple, __VA_ARGS__)
+#define DERIVE_RULE_TUPLE_III(N, NS, TP, MethodsTuple, ...)                    \
+  DERIVE_RULE_TUPLE_##N(NS, TP, MethodsTuple, __VA_ARGS__)
+#define DERIVE_RULE_TUPLE_1(NS, TP, MethodsTuple, Kind)                        \
+  DERIVE_RULE_##Kind##_1(NS, TP, MethodsTuple)
+#define DERIVE_RULE_TUPLE_2(NS, TP, MethodsTuple, Kind, A1)                    \
+  DERIVE_RULE_##Kind##_2(NS, TP, MethodsTuple, A1)
+#define DERIVE_RULE_TUPLE_3(NS, TP, MethodsTuple, Kind, A1, A2)                \
+  DERIVE_RULE_##Kind##_3(NS, TP, MethodsTuple, A1, A2)
+#define DERIVE_RULE_TUPLE_4(NS, TP, MethodsTuple, Kind, A1, A2, A3)            \
+  DERIVE_RULE_##Kind##_4(NS, TP, MethodsTuple, A1, A2, A3)
+#define DERIVE_RULE_TUPLE_5(NS, TP, MethodsTuple, Kind, A1, A2, A3, A4)        \
+  DERIVE_RULE_##Kind##_5(NS, TP, MethodsTuple, A1, A2, A3, A4)
+
+#define DERIVE_RULE_member_3(NS, TP, MethodsTuple, Wrapper, Field)             \
+  DERIVE_RULE_MEMBER_I(VA_COUNT(UNWRAP(TP)), NS, MethodsTuple, Wrapper,        \
+                       (Self), Field)
+#define DERIVE_RULE_member_4(NS, TP, MethodsTuple, Wrapper, ArgsTuple, Field)  \
+  DERIVE_RULE_MEMBER_I(VA_COUNT(UNWRAP(TP)), NS, MethodsTuple, Wrapper,        \
+                       ArgsTuple, Field)
+
+#define DERIVE_RULE_MEMBER_I(N, NS, MethodsTuple, Wrapper, ArgsTuple, Field)   \
+  DERIVE_RULE_MEMBER_II(N, NS, MethodsTuple, Wrapper, ArgsTuple, Field)
+#define DERIVE_RULE_MEMBER_II(N, NS, MethodsTuple, Wrapper, ArgsTuple, Field)  \
+  DERIVE_RULE_MEMBER_##N(NS, MethodsTuple, Wrapper, ArgsTuple, Field)
+
+#define DERIVE_RULE_MEMBER_1(NS, MethodsTuple, Wrapper, ArgsTuple, Field)      \
+  DERIVE_WRAPPER_TEMPLATE_DECL(ArgsTuple)                                      \
+    requires ::NS::Trait<TraitDerived>                                         \
+  struct NS::Impl<Wrapper<DERIVE_WRAPPER_TYPE_ARGS(ArgsTuple)>> {              \
+    using Self = Wrapper<DERIVE_WRAPPER_TYPE_ARGS(ArgsTuple)>;                 \
+    FOR_EACH_WITH2(DERIVE_MEMBER_METHOD4_TUPLE, NS, Field,                     \
+                   UNWRAP_I MethodsTuple)                                      \
+  };
+#define DERIVE_RULE_MEMBER_2(NS, MethodsTuple, Wrapper, ArgsTuple, Field)      \
+  static_assert(false,                                                         \
+                "derive rules currently support only single-parameter traits");
+#define DERIVE_RULE_MEMBER_3(NS, MethodsTuple, Wrapper, ArgsTuple, Field)      \
+  static_assert(false,                                                         \
+                "derive rules currently support only single-parameter traits");
+
+#define DERIVE_RULE_iterate_3(NS, TP, MethodsTuple, Wrapper, ArgsTuple)        \
+  DERIVE_RULE_ITERATE_I(VA_COUNT(UNWRAP(TP)), NS, MethodsTuple, Wrapper,       \
+                        ArgsTuple, (each))
+#define DERIVE_RULE_iterate_4(NS, TP, MethodsTuple, Wrapper, ArgsTuple,        \
+                              ReducerSpec)                                      \
+  DERIVE_RULE_ITERATE_I(VA_COUNT(UNWRAP(TP)), NS, MethodsTuple, Wrapper,       \
+                        ArgsTuple, ReducerSpec)
+
+#define DERIVE_RULE_ITERATE_I(N, NS, MethodsTuple, Wrapper, ArgsTuple,         \
+                              Reducer)                                          \
+  DERIVE_RULE_ITERATE_II(N, NS, MethodsTuple, Wrapper, ArgsTuple, Reducer)
+#define DERIVE_RULE_ITERATE_II(N, NS, MethodsTuple, Wrapper, ArgsTuple,        \
+                               Reducer)                                         \
+  DERIVE_RULE_ITERATE_##N(NS, MethodsTuple, Wrapper, ArgsTuple, Reducer)
+
+#define DERIVE_RULE_ITERATE_1(NS, MethodsTuple, Wrapper, ArgsTuple, Reducer)   \
+  DERIVE_WRAPPER_TEMPLATE_DECL(ArgsTuple)                                      \
+    requires ::NS::Trait<TraitDerived>                                         \
+  struct NS::Impl<Wrapper<DERIVE_WRAPPER_TYPE_ARGS(ArgsTuple)>> {              \
+    using Self = Wrapper<DERIVE_WRAPPER_TYPE_ARGS(ArgsTuple)>;                 \
+    FOR_EACH_WITH2(DERIVE_ITERATE_METHOD4_TUPLE, NS, Reducer,                  \
+                   UNWRAP_I MethodsTuple)                                      \
+  };
+#define DERIVE_RULE_ITERATE_2(NS, MethodsTuple, Wrapper, ArgsTuple, Reducer)   \
+  static_assert(false,                                                         \
+                "derive rules currently support only single-parameter traits");
+#define DERIVE_RULE_ITERATE_3(NS, MethodsTuple, Wrapper, ArgsTuple, Reducer)   \
+  static_assert(false,                                                         \
+                "derive rules currently support only single-parameter traits");
+
+#define DERIVE_VARIANT_METHOD4_TUPLE(NS, M)                                    \
+  DERIVE_VARIANT_METHOD4_APPLY(NS, UNWRAP(M))
+#define DERIVE_VARIANT_METHOD4_APPLY(NS, ...) DERIVE_VARIANT_METHOD4(NS, __VA_ARGS__)
+#define DERIVE_VARIANT_METHOD4(NS, Ret, Name, Params)                          \
+  static Ret Name(FUNC_PARAMS(Params)) {                                       \
+    return std::visit(                                                         \
+        [&](auto &inner) -> Ret {                                              \
+          return ::NS::Name(                                                   \
+              ::gen_interface_detail::variant_receiver<FIRST(Params)>(inner)   \
+                  CALL_EXTRA_ARGS(Params));                                    \
+        },                                                                     \
+        ::gen_interface_detail::iterable_from(self));                          \
+  }
+
+#define DERIVE_FILTERED_VARIANT_METHOD4_TUPLE(NS, Fallback, M)                 \
+  DERIVE_FILTERED_VARIANT_METHOD4_APPLY(NS, Fallback, UNWRAP(M))
+#define DERIVE_FILTERED_VARIANT_METHOD4_APPLY(NS, Fallback, ...)               \
+  DERIVE_FILTERED_VARIANT_METHOD4(NS, Fallback, __VA_ARGS__)
+#define DERIVE_FILTERED_VARIANT_METHOD4(NS, Fallback, Ret, Name, Params)       \
+  static Ret Name(FUNC_PARAMS(Params)) {                                       \
+    return std::visit(                                                         \
+        [&](auto &inner) -> Ret {                                              \
+          using Inner = std::remove_cvref_t<decltype(inner)>;                  \
+          if constexpr (::NS::Trait<Inner>) {                                  \
+            return ::NS::Name(                                                 \
+                ::gen_interface_detail::variant_receiver<FIRST(Params)>(inner) \
+                    CALL_EXTRA_ARGS(Params));                                  \
+          } else {                                                             \
+            return (Fallback)(std::type_identity<Ret>{}, inner                 \
+                              CALL_EXTRA_ARGS(Params));                        \
+          }                                                                    \
+        },                                                                     \
+        ::gen_interface_detail::iterable_from(self));                          \
+  }
+
+#define DERIVE_RULE_variant_1(NS, TP, MethodsTuple)                            \
+  static_assert(VA_COUNT(UNWRAP(TP)) == 1,                                     \
+                "variant rules currently support only single-parameter traits");\
+  template <typename... TraitDerived>                                          \
+    requires(sizeof...(TraitDerived) > 0 &&                                     \
+             (... && ::NS::Trait<TraitDerived>))                               \
+  struct NS::Impl<std::variant<TraitDerived...>> {                             \
+    using Self = std::variant<TraitDerived...>;                                \
+    FOR_EACH_WITH(DERIVE_VARIANT_METHOD4_TUPLE, NS, UNWRAP_I MethodsTuple)     \
+  };
+#define DERIVE_RULE_variant_2(NS, TP, MethodsTuple, Fallback)                  \
+  static_assert(VA_COUNT(UNWRAP(TP)) == 1,                                     \
+                "variant rules currently support only single-parameter traits");\
+  template <typename... TraitDerived>                                          \
+    requires(sizeof...(TraitDerived) > 0)                                      \
+  struct NS::Impl<std::variant<TraitDerived...>> {                             \
+    using Self = std::variant<TraitDerived...>;                                \
+    FOR_EACH_WITH2(DERIVE_FILTERED_VARIANT_METHOD4_TUPLE, NS, Fallback,        \
+                   UNWRAP_I MethodsTuple)                                      \
+  };
+
+//--------------------------------------------------------------------
 //  Main macros
 //--------------------------------------------------------------------
 
@@ -551,11 +837,14 @@ constexpr decltype(auto) receiver_from(void *p) {
 //--------------------------------------------------------------------
 //  Frontend wrappers
 //--------------------------------------------------------------------
-#define trait(...) TRAIT_EXPAND_1(__VA_ARGS__)
-#define TRAIT_EXPAND_1(...) TRAIT_EXPAND_2(__VA_ARGS__)
-#define TRAIT_EXPAND_2(Name, TP, MethodsTuple)                                 \
-  TRAIT_EXPAND_3(Name, TP, UNWRAP_I MethodsTuple)
-#define TRAIT_EXPAND_3(Name, TP, ...) StrictTrait(Name, TP, __VA_ARGS__)
+#define TRAIT_SELECT(_1, _2, _3, _4, NAME, ...) NAME
+#define trait(...)                                                             \
+  TRAIT_SELECT(__VA_ARGS__, TRAIT_EXPAND_4, TRAIT_EXPAND_3)(__VA_ARGS__)
+#define TRAIT_EXPAND_3(Name, TP, MethodsTuple)                                 \
+  StrictTrait(Name, TP, UNWRAP_I MethodsTuple)
+#define TRAIT_EXPAND_4(Name, TP, MethodsTuple, RulesTuple)                     \
+  StrictTrait(Name, TP, UNWRAP_I MethodsTuple)                                 \
+  DERIVE_RULES(Name, TP, MethodsTuple, RulesTuple)
 
 #define static_trait(...) STATIC_TRAIT_EXPAND_1(__VA_ARGS__)
 #define STATIC_TRAIT_EXPAND_1(...) STATIC_TRAIT_EXPAND_2(__VA_ARGS__)
@@ -564,11 +853,15 @@ constexpr decltype(auto) receiver_from(void *p) {
 #define STATIC_TRAIT_EXPAND_3(Name, TP, ...)                                   \
   StrictStaticTrait(Name, TP, __VA_ARGS__)
 
-#define ducktyped_trait(...) DUCKTYPED_TRAIT_EXPAND_1(__VA_ARGS__)
-#define DUCKTYPED_TRAIT_EXPAND_1(...) DUCKTYPED_TRAIT_EXPAND_2(__VA_ARGS__)
-#define DUCKTYPED_TRAIT_EXPAND_2(Name, TP, MethodsTuple)                       \
-  DUCKTYPED_TRAIT_EXPAND_3(Name, TP, UNWRAP_I MethodsTuple)
-#define DUCKTYPED_TRAIT_EXPAND_3(Name, TP, ...) DuckTrait(Name, TP, __VA_ARGS__)
+#define DUCKTYPED_TRAIT_SELECT(_1, _2, _3, _4, NAME, ...) NAME
+#define ducktyped_trait(...)                                                   \
+  DUCKTYPED_TRAIT_SELECT(__VA_ARGS__, DUCKTYPED_TRAIT_EXPAND_4,                \
+                         DUCKTYPED_TRAIT_EXPAND_3)(__VA_ARGS__)
+#define DUCKTYPED_TRAIT_EXPAND_3(Name, TP, MethodsTuple)                       \
+  DuckTrait(Name, TP, UNWRAP_I MethodsTuple)
+#define DUCKTYPED_TRAIT_EXPAND_4(Name, TP, MethodsTuple, RulesTuple)           \
+  DuckTrait(Name, TP, UNWRAP_I MethodsTuple)                                   \
+  DERIVE_RULES(Name, TP, MethodsTuple, RulesTuple)
 
 #define static_ducktyped_trait(...) STATIC_DUCKTYPED_TRAIT_EXPAND_1(__VA_ARGS__)
 #define STATIC_DUCKTYPED_TRAIT_EXPAND_1(...)                                   \

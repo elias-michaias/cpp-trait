@@ -2,7 +2,12 @@
 
 #include <array>
 #include <iostream>
+#include <variant>
 #include "../trait.hpp"
+
+template <typename T> struct Box {
+  T inner;
+};
 
 // 1-param: Shape
 // due to limitations of VTable generation,
@@ -12,6 +17,17 @@
 trait(Shape, (Self), (
   (int, area, (Self)),
   (void, scale, (Self *, int))
+), (
+  (member, Box, (Self), inner),
+  (iterate, std::array, (Self, N),
+   (reduce, 0, ([](auto acc, auto value) { return acc + value; }))),
+  (variant,
+   ([](auto ret, auto &, auto...) {
+     if constexpr (std::is_void_v<typename decltype(ret)::type>)
+       return;
+     else
+       return 0;
+   }))
 ))
 
 // static_trait(...)
@@ -60,24 +76,15 @@ template <> struct Shape::Impl<Rect> {
   }
 };
 
-template <Shape::Trait T, std::size_t N> struct Shape::Impl<std::array<T, N>> {
-  static int area(std::array<T, N> a) {
-    int t = 0;
-    for (auto &i : a)
-      t += Shape::area(i);
-    return t;
-  }
-  static void scale(std::array<T, N> *a, int f) {
-    for (auto &i : *a)
-      Shape::scale(&i, f);
-  }
-};
-
 static_assert(Shape::Trait<Circle>);
 static_assert(Shape::Trait<Rect>);
 static_assert(Shape::Trait<std::array<Rect, 2>>);
+static_assert(Shape::Trait<Box<Circle>>);
+static_assert(Shape::Trait<std::variant<Circle, Rect>>);
+static_assert(Shape::Trait<std::variant<Circle, int>>);
 static_assert(Shape::Trait<Shape::Dyn>);
 static_assert(Shape::Trait<std::array<Shape::Dyn, 3>>);
+static_assert(Shape::Trait<Box<Shape::Dyn>>);
 
 // 2-param: Into<T>
 // ducktyped_trait = allow C/C++ implicit conversions
@@ -120,6 +127,21 @@ int main() {
   Rect r{3, 4};
   std::array<Shape::Dyn, 2> arr = {c, r};
   std::cout << Shape::area(arr[0]) << " " << Shape::area(arr[1]) << "\n"; // 900 12
+
+  Box<Circle> boxed{.inner = c};
+  std::cout << Shape::area(boxed) << "\n"; // 900
+  Shape::scale(&boxed, 2);
+  std::cout << Shape::area(boxed) << "\n"; // 3600
+
+  std::variant<Circle, Rect> vr = r;
+  std::cout << Shape::area(vr) << "\n"; // 12
+  Shape::scale(&vr, 2);
+  std::cout << Shape::area(vr) << "\n"; // 48
+
+  std::variant<Circle, int> mixed = 7;
+  std::cout << Shape::area(mixed) << "\n"; // 0
+  Shape::scale(&mixed, 2);
+  std::cout << std::get<int>(mixed) << "\n"; // 7
 
   // 2-param: Into
   MyFloat f{3.7f};
