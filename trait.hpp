@@ -265,7 +265,7 @@ constexpr decltype(auto) receiver_from(void *p) {
 //  C++23+: deducing this, no CRTP.
 //  C++20 : CRTP fallback.
 //--------------------------------------------------------------------
-#if defined(__cpp_explicit_this_parameter) && __cpp_explicit_this_parameter >= 202110L
+#if (defined(__cpp_explicit_this_parameter) && __cpp_explicit_this_parameter >= 202110L) || defined(__clang__)
 
 #define MIXIN_TEMPLATE_HEAD(TP)                                                \
   MIXIN_TEMPLATE_HEAD_I(VA_COUNT(UNWRAP(TP)), UNWRAP(TP))
@@ -363,7 +363,7 @@ constexpr decltype(auto) receiver_from(void *p) {
 
 #endif
 
-#if (__cplusplus > 202002L) || defined(__cpp_explicit_this_parameter)
+#if (defined(__cpp_explicit_this_parameter) && __cpp_explicit_this_parameter >= 202110L) || defined(__clang__)
 #define MIXIN_BASE(TP) : Mixin ANGLE_EXTRA_ARGS(TP)
 #else
 #define MIXIN_BASE(TP) : Mixin<DYN_IMPL_SPEC_ARGS(TP)>
