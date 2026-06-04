@@ -1,476 +1,581 @@
-#ifndef TRAIT_FINALY_FIXED_HPP
-#define TRAIT_FINALY_FIXED_HPP
+// gen_interface.h
+#ifndef TRAIT_GENERATION_H
+#define TRAIT_GENERATION_H
 
-#include <array>
-#include <cstddef>
-#include <memory>
-#include <optional>
 #include <type_traits>
-#include <utility>
-#include <variant>
 
-namespace trait_finally_fixed_detail {
+namespace gen_interface_detail {
 
-template <class T>
-using remove_cvref_t = std::remove_cvref_t<T>;
+template <class Receiver, class T>
+constexpr decltype(auto) receiver_from(void *p) {
+  if constexpr (std::is_pointer_v<Receiver>)
+    return static_cast<Receiver>(p);
+  else
+    return *static_cast<std::remove_reference_t<Receiver> *>(p);
+}
 
-template <class T>
-struct is_std_array : std::false_type {};
-template <class T, std::size_t N>
-struct is_std_array<std::array<T, N>> : std::true_type {};
-template <class T>
-inline constexpr bool is_std_array_v = is_std_array<remove_cvref_t<T>>::value;
+} // namespace gen_interface_detail
 
-template <class T>
-struct is_std_optional : std::false_type {};
-template <class T>
-struct is_std_optional<std::optional<T>> : std::true_type {};
-template <class T>
-inline constexpr bool is_std_optional_v = is_std_optional<remove_cvref_t<T>>::value;
+//--------------------------------------------------------------------
+//  FOR_EACH / FOR_EACH_WITH
+//--------------------------------------------------------------------
+#define PARENS ()
+#define EXPAND(...) EXPAND1(EXPAND1(EXPAND1(EXPAND1(__VA_ARGS__))))
+#define EXPAND1(...) EXPAND2(EXPAND2(EXPAND2(EXPAND2(__VA_ARGS__))))
+#define EXPAND2(...) EXPAND3(EXPAND3(EXPAND3(EXPAND3(__VA_ARGS__))))
+#define EXPAND3(...) EXPAND4(EXPAND4(EXPAND4(EXPAND4(__VA_ARGS__))))
+#define EXPAND4(...) __VA_ARGS__
 
-template <class T>
-struct is_std_shared_ptr : std::false_type {};
-template <class T>
-struct is_std_shared_ptr<std::shared_ptr<T>> : std::true_type {};
-template <class T>
-inline constexpr bool is_std_shared_ptr_v = is_std_shared_ptr<remove_cvref_t<T>>::value;
+#define FOR_EACH(macro, ...)                                                   \
+  __VA_OPT__(EXPAND(FOR_EACH_HELPER(macro, __VA_ARGS__)))
+#define FOR_EACH_HELPER(macro, a1, ...)                                        \
+  macro(a1) __VA_OPT__(FOR_EACH_AGAIN PARENS(macro, __VA_ARGS__))
+#define FOR_EACH_AGAIN() FOR_EACH_HELPER
 
-template <class T>
-struct is_std_variant : std::false_type {};
-template <class... Ts>
-struct is_std_variant<std::variant<Ts...>> : std::true_type {};
-template <class T>
-inline constexpr bool is_std_variant_v = is_std_variant<remove_cvref_t<T>>::value;
+#define FOR_EACH_WITH(macro, data, ...)                                        \
+  __VA_OPT__(EXPAND(FEWH(macro, data, __VA_ARGS__)))
+#define FEWH(macro, data, a1, ...)                                             \
+  macro(data, a1) __VA_OPT__(FEWA PARENS(macro, data, __VA_ARGS__))
+#define FEWA() FEWH
 
-template <class T>
-concept has_inner = requires(T t) { t.inner; };
+#define FOR_EACH_WITH2(macro, data1, data2, ...)                               \
+  __VA_OPT__(EXPAND(FEWH2(macro, data1, data2, __VA_ARGS__)))
+#define FEWH2(macro, data1, data2, a1, ...)                                    \
+  macro(data1, data2, a1) __VA_OPT__(FEWA2 PARENS(macro, data1, data2, __VA_ARGS__))
+#define FEWA2() FEWH2
 
-template <class T>
-concept has_get = requires(T t) { t.get(); };
+//--------------------------------------------------------------------
+//  Arity / unwrap
+//--------------------------------------------------------------------
+#define VA_COUNT(...) VA_COUNT_IMPL(__VA_ARGS__, 5, 4, 3, 2, 1)
+#define VA_COUNT_IMPL(_1, _2, _3, _4, _5, N, ...) N
+#define UNWRAP_I(...) __VA_ARGS__
+#define UNWRAP(x) UNWRAP_I x
 
-template <class T>
-concept has_bool_and_deref = requires(T t) {
-  static_cast<bool>(t);
-  *t;
-};
+#define FIRST_1(A) A
+#define FIRST_2(A, ...) A
+#define FIRST_3(A, ...) A
+#define FIRST(P) FIRST_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
+#define FIRST_I(N, ...) FIRST_II(N, __VA_ARGS__)
+#define FIRST_II(N, ...) FIRST_##N(__VA_ARGS__)
 
-template <class T>
-concept has_ptr_and_count = requires(T t) {
-  t.ptr;
-  t.count;
-};
+//--------------------------------------------------------------------
+//  Parameter helpers (Params = (Self, extras...))
+//--------------------------------------------------------------------
+#define TUPLE_TO_DECLVALS_1(T1) std::declval<T1>()
+#define TUPLE_TO_DECLVALS_2(T1, T2) std::declval<T1>(), std::declval<T2>()
+#define TUPLE_TO_DECLVALS_3(T1, T2, T3)                                        \
+  std::declval<T1>(), std::declval<T2>(), std::declval<T3>()
+#define TUPLE_TO_DECLVALS_4(T1, T2, T3, T4)                                    \
+  std::declval<T1>(), std::declval<T2>(), std::declval<T3>(), std::declval<T4>()
+#define TUPLE_TO_DECLVALS_5(T1, T2, T3, T4, T5)                                \
+  std::declval<T1>(), std::declval<T2>(), std::declval<T3>(),                  \
+      std::declval<T4>(), std::declval<T5>()
+#define TUPLE_TO_DECLVALS(P) TUPLE_TO_DECLVALS_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
+#define TUPLE_TO_DECLVALS_I(N, ...) TUPLE_TO_DECLVALS_II(N, __VA_ARGS__)
+#define TUPLE_TO_DECLVALS_II(N, ...) TUPLE_TO_DECLVALS_##N(__VA_ARGS__)
 
-template <class T>
-concept has_kind_and_value = requires(T t) {
-  t.kind;
-  t.value;
-};
+#define FUNC_PARAMS_1(S) S self
+#define FUNC_PARAMS_2(S, T1) S self, T1 p1
+#define FUNC_PARAMS_3(S, T1, T2) S self, T1 p1, T2 p2
+#define FUNC_PARAMS_4(S, T1, T2, T3) S self, T1 p1, T2 p2, T3 p3
+#define FUNC_PARAMS_5(S, T1, T2, T3, T4) S self, T1 p1, T2 p2, T3 p3, T4 p4
+#define FUNC_PARAMS(P) FUNC_PARAMS_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
+#define FUNC_PARAMS_I(N, ...) FUNC_PARAMS_II(N, __VA_ARGS__)
+#define FUNC_PARAMS_II(N, ...) FUNC_PARAMS_##N(__VA_ARGS__)
 
-template <class T>
-concept is_pointer_like = std::is_pointer_v<remove_cvref_t<T>>;
+#define CALL_ARGS_1(S) self
+#define CALL_ARGS_2(S, T1) self, p1
+#define CALL_ARGS_3(S, T1, T2) self, p1, p2
+#define CALL_ARGS_4(S, T1, T2, T3) self, p1, p2, p3
+#define CALL_ARGS_5(S, T1, T2, T3, T4) self, p1, p2, p3, p4
+#define CALL_ARGS(P) CALL_ARGS_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
+#define CALL_ARGS_I(N, ...) CALL_ARGS_II(N, __VA_ARGS__)
+#define CALL_ARGS_II(N, ...) CALL_ARGS_##N(__VA_ARGS__)
 
-template <class T>
-concept is_slice_like = has_ptr_and_count<remove_cvref_t<T>>;
+#define CALL_EXTRA_ARGS_1(S)
+#define CALL_EXTRA_ARGS_2(S, T1) , p1
+#define CALL_EXTRA_ARGS_3(S, T1, T2) , p1, p2
+#define CALL_EXTRA_ARGS_4(S, T1, T2, T3) , p1, p2, p3
+#define CALL_EXTRA_ARGS_5(S, T1, T2, T3, T4) , p1, p2, p3, p4
+#define CALL_EXTRA_ARGS(P) CALL_EXTRA_ARGS_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
+#define CALL_EXTRA_ARGS_I(N, ...) CALL_EXTRA_ARGS_II(N, __VA_ARGS__)
+#define CALL_EXTRA_ARGS_II(N, ...) CALL_EXTRA_ARGS_##N(__VA_ARGS__)
 
-template <class T>
-concept is_tagged_union_like = has_kind_and_value<remove_cvref_t<T>>;
+#define VTABLE_EXTRA_PARAMS_1(S)
+#define VTABLE_EXTRA_PARAMS_2(S, T1) , T1
+#define VTABLE_EXTRA_PARAMS_3(S, T1, T2) , T1, T2
+#define VTABLE_EXTRA_PARAMS_4(S, T1, T2, T3) , T1, T2, T3
+#define VTABLE_EXTRA_PARAMS_5(S, T1, T2, T3, T4) , T1, T2, T3, T4
+#define VTABLE_EXTRA_PARAMS(P)                                                 \
+  VTABLE_EXTRA_PARAMS_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
+#define VTABLE_EXTRA_PARAMS_I(N, ...) VTABLE_EXTRA_PARAMS_II(N, __VA_ARGS__)
+#define VTABLE_EXTRA_PARAMS_II(N, ...) VTABLE_EXTRA_PARAMS_##N(__VA_ARGS__)
 
-} // namespace trait_finally_fixed_detail
+#define VT_LAMBDA_EXTRA_PARAMS_1(S)
+#define VT_LAMBDA_EXTRA_PARAMS_2(S, T1) , T1 p1
+#define VT_LAMBDA_EXTRA_PARAMS_3(S, T1, T2) , T1 p1, T2 p2
+#define VT_LAMBDA_EXTRA_PARAMS_4(S, T1, T2, T3) , T1 p1, T2 p2, T3 p3
+#define VT_LAMBDA_EXTRA_PARAMS_5(S, T1, T2, T3, T4) , T1 p1, T2 p2, T3 p3, T4 p4
+#define VT_LAMBDA_EXTRA_PARAMS(P)                                              \
+  VT_LAMBDA_EXTRA_PARAMS_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
+#define VT_LAMBDA_EXTRA_PARAMS_I(N, ...)                                       \
+  VT_LAMBDA_EXTRA_PARAMS_II(N, __VA_ARGS__)
+#define VT_LAMBDA_EXTRA_PARAMS_II(N, ...)                                      \
+  VT_LAMBDA_EXTRA_PARAMS_##N(__VA_ARGS__)
 
-struct Shape;
-struct DoubleMap;
-struct ScaleMap;
-struct Into;
-struct Test;
+//--------------------------------------------------------------------
+//  Type param helpers
+//--------------------------------------------------------------------
+#define TYPENAME_LIST(TP) TYPENAME_LIST_I(VA_COUNT(UNWRAP(TP)), UNWRAP(TP))
+#define TYPENAME_LIST_I(N, ...) TYPENAME_LIST_II(N, __VA_ARGS__)
+#define TYPENAME_LIST_II(N, ...) TYPENAME_LIST_##N(__VA_ARGS__)
+#define TYPENAME_LIST_1(A) typename A
+#define TYPENAME_LIST_2(A, B) typename A, typename B
+#define TYPENAME_LIST_3(A, B, C) typename A, typename B, typename C
 
-#define trait(Name, TP, MethodsTuple, ...) TRAIT_BUILD_##Name
-#define static_trait(Name, TP, MethodsTuple) TRAIT_STATIC_BUILD_##Name
-#define ducktyped_trait(Name, TP, MethodsTuple) TRAIT_DUCK_BUILD_##Name
-#define static_ducktyped_trait(Name, TP, MethodsTuple) TRAIT_STATIC_DUCK_BUILD_##Name
+#define TEMPLATE_DECL(TP) TEMPLATE_DECL_I(VA_COUNT(UNWRAP(TP)), UNWRAP(TP))
+#define TEMPLATE_DECL_I(N, ...) TEMPLATE_DECL_II(N, __VA_ARGS__)
+#define TEMPLATE_DECL_II(N, ...) TEMPLATE_DECL_##N(__VA_ARGS__)
+#define TEMPLATE_DECL_1(A)
+#define TEMPLATE_DECL_2(A, B) template <typename B>
+#define TEMPLATE_DECL_3(A, B, C) template <typename B, typename C>
 
-// -----------------------------------------------------------------------------
-// Shape
-// -----------------------------------------------------------------------------
-struct Shape {
-  template <class T> struct Impl;
+#define IMPL_SPEC_HEAD(TP) IMPL_SPEC_HEAD_I(VA_COUNT(UNWRAP(TP)), UNWRAP(TP))
+#define IMPL_SPEC_HEAD_I(N, ...) IMPL_SPEC_HEAD_II(N, __VA_ARGS__)
+#define IMPL_SPEC_HEAD_II(N, ...) IMPL_SPEC_HEAD_##N(__VA_ARGS__)
+#define IMPL_SPEC_HEAD_1(A) template <>
+#define IMPL_SPEC_HEAD_2(A, B)
+#define IMPL_SPEC_HEAD_3(A, B, C)
 
-  struct Dyn {
-    struct vtable_t {
-      int (*area)(const void *);
-      void (*scale)(void *, int);
-    };
+#define ANGLE_EXTRA_ARGS(TP)                                                   \
+  ANGLE_EXTRA_ARGS_I(VA_COUNT(UNWRAP(TP)), UNWRAP(TP))
+#define ANGLE_EXTRA_ARGS_I(N, ...) ANGLE_EXTRA_ARGS_II(N, __VA_ARGS__)
+#define ANGLE_EXTRA_ARGS_II(N, ...) ANGLE_EXTRA_ARGS_##N(__VA_ARGS__)
+#define ANGLE_EXTRA_ARGS_1(A)
+#define ANGLE_EXTRA_ARGS_2(A, B) <B>
+#define ANGLE_EXTRA_ARGS_3(A, B, C) <B, C>
 
-    std::shared_ptr<void> storage;
-    const vtable_t *vt = nullptr;
+#define ALL_ARGS(TP) ALL_ARGS_I(VA_COUNT(UNWRAP(TP)), UNWRAP(TP))
+#define ALL_ARGS_I(N, ...) ALL_ARGS_II(N, __VA_ARGS__)
+#define ALL_ARGS_II(N, ...) ALL_ARGS_##N(__VA_ARGS__)
+#define ALL_ARGS_1(A) A
+#define ALL_ARGS_2(A, B) A, B
+#define ALL_ARGS_3(A, B, C) A, B, C
 
-    Dyn() = default;
+#define TAIL_ARGS(TP) TAIL_ARGS_I(VA_COUNT(UNWRAP(TP)), UNWRAP(TP))
+#define TAIL_ARGS_I(N, ...) TAIL_ARGS_II(N, __VA_ARGS__)
+#define TAIL_ARGS_II(N, ...) TAIL_ARGS_##N(__VA_ARGS__)
+#define TAIL_ARGS_1(A)
+#define TAIL_ARGS_2(A, B) B
+#define TAIL_ARGS_3(A, B, C) B, C
 
-    template <class T>
-    requires(!std::same_as<trait_finally_fixed_detail::remove_cvref_t<T>, Dyn>)
-    Dyn(T &&value) {
-      emplace<trait_finally_fixed_detail::remove_cvref_t<T>>(std::forward<T>(value));
-    }
+#define COMMA_TAIL(TP) COMMA_TAIL_I(VA_COUNT(UNWRAP(TP)), TP)
+#define COMMA_TAIL_I(N, TP) COMMA_TAIL_II(N, TP)
+#define COMMA_TAIL_II(N, TP) COMMA_TAIL_##N(TP)
+#define COMMA_TAIL_1(TP)
+#define COMMA_TAIL_2(TP) , TAIL_ARGS(TP)
+#define COMMA_TAIL_3(TP) , TAIL_ARGS(TP)
 
-    Dyn(const Dyn &) = default;
-    Dyn(Dyn &&) noexcept = default;
-    Dyn &operator=(const Dyn &) = default;
-    Dyn &operator=(Dyn &&) noexcept = default;
+#define DYN_IMPL_SPEC_ARGS(TP) Dyn ANGLE_EXTRA_ARGS(TP) COMMA_TAIL(TP)
 
-    template <class T>
-    requires(!std::same_as<trait_finally_fixed_detail::remove_cvref_t<T>, Dyn>)
-    Dyn &operator=(T &&value) {
-      emplace<trait_finally_fixed_detail::remove_cvref_t<T>>(std::forward<T>(value));
-      return *this;
-    }
+#define FUNC_TEMPLATE_HEAD(TP)                                                 \
+  FUNC_TEMPLATE_HEAD_I(VA_COUNT(UNWRAP(TP)), UNWRAP(TP))
+#define FUNC_TEMPLATE_HEAD_I(N, ...) FUNC_TEMPLATE_HEAD_II(N, __VA_ARGS__)
+#define FUNC_TEMPLATE_HEAD_II(N, ...) FUNC_TEMPLATE_HEAD_##N(__VA_ARGS__)
+#define FUNC_TEMPLATE_HEAD_1(A) template <Trait A>
+#define FUNC_TEMPLATE_HEAD_2(A, B) template <typename B, Trait<B> A>
+#define FUNC_TEMPLATE_HEAD_3(A, B, C)                                          \
+  template <typename B, typename C, Trait<B, C> A>
 
-    int area() const { return vt->area(storage.get()); }
-    void scale(int factor) { vt->scale(storage.get(), factor); }
+#define DYN_CTOR_CONSTRAINT(TP)                                                \
+  DYN_CTOR_CONSTRAINT_I(VA_COUNT(UNWRAP(TP)), UNWRAP(TP))
+#define DYN_CTOR_CONSTRAINT_I(N, ...) DYN_CTOR_CONSTRAINT_II(N, __VA_ARGS__)
+#define DYN_CTOR_CONSTRAINT_II(N, ...) DYN_CTOR_CONSTRAINT_##N(__VA_ARGS__)
+#define DYN_CTOR_CONSTRAINT_1(A)                                               \
+  template <typename A>                                                        \
+    requires Trait<A> && (!std::same_as<std::remove_cvref_t<A>, Dyn>)
+#define DYN_CTOR_CONSTRAINT_2(A, B)                                            \
+  template <typename A>                                                        \
+    requires Trait<A, B> && (!std::same_as<std::remove_cvref_t<A>, Dyn<B>>)
+#define DYN_CTOR_CONSTRAINT_3(A, B, C)                                         \
+  template <typename A>                                                        \
+    requires Trait<A, B, C> &&                                                 \
+             (!std::same_as<std::remove_cvref_t<A>, Dyn<B, C>>)
 
-  private:
-    template <class T, class U>
-    void emplace(U &&value) {
-      storage = std::make_shared<T>(std::forward<U>(value));
-      vt = &table<T>();
-    }
+//--------------------------------------------------------------------
+//  Duck‑typed operation macros (multiple overloads for Dyn)
+//--------------------------------------------------------------------
+#define DUCK_TRAIT_REQ4_TUPLE(TP, M) DUCK_TRAIT_REQ4_APPLY(TP, UNWRAP(M))
+#define DUCK_TRAIT_REQ4_APPLY(TP, ...) DUCK_TRAIT_REQ4(TP, __VA_ARGS__)
+#define DUCK_TRAIT_REQ4(TP, Ret, Name, Params)                                 \
+  {Impl<ALL_ARGS(TP)>::Name(TUPLE_TO_DECLVALS(Params))}->std::same_as<Ret>;
 
-    template <class T>
-    static const vtable_t &table() {
-      static const vtable_t vt{
-          +[](const void *p) -> int {
-            return Shape::area(*static_cast<const T *>(p));
-          },
-          +[](void *p, int factor) {
-            Shape::scale(static_cast<T *>(p), factor);
-          }};
-      return vt;
-    }
-
-    friend struct Shape;
-  };
-
-  struct Mixin {
-    template <class Self>
-    auto area(this Self &&self) {
-      return Shape::area(std::forward<Self>(self));
-    }
-
-    template <class Self>
-    auto scale(this Self &&self, int factor) {
-      Shape::scale(std::forward<Self>(self), factor);
-    }
-  };
-
-  template <class Self>
-  static int area(Self &&self) {
-    return area_impl(std::forward<Self>(self));
+#define FREE_FUNC4_TUPLE(TP, M) FREE_FUNC4_APPLY(TP, UNWRAP(M))
+#define FREE_FUNC4_APPLY(TP, ...) FREE_FUNC4(TP, __VA_ARGS__)
+#define FREE_FUNC4(TP, Ret, Name, Params)                                      \
+  FUNC_TEMPLATE_HEAD(TP) Ret Name(FUNC_PARAMS(Params)) {                       \
+    return Impl<ALL_ARGS(TP)>::Name(CALL_ARGS(Params));                        \
   }
 
-  template <class Self>
-  static void scale(Self &&self, int factor) {
-    scale_impl(std::forward<Self>(self), factor);
+#define VTABLE_MEMBER4_TUPLE(TP, M) VTABLE_MEMBER4_APPLY(TP, UNWRAP(M))
+#define VTABLE_MEMBER4_APPLY(TP, ...) VTABLE_MEMBER4(TP, __VA_ARGS__)
+#define VTABLE_MEMBER4(TP, Ret, Name, Params)                                  \
+  Ret (*Name)(void *VTABLE_EXTRA_PARAMS(Params));
+
+#define VT_ENTRY4_TUPLE(TP, M) VT_ENTRY4_APPLY(TP, UNWRAP(M))
+#define VT_ENTRY4_APPLY(TP, ...) VT_ENTRY4(TP, __VA_ARGS__)
+#define VT_ENTRY4(TP, Ret, Name, Params)                                       \
+  .Name = [](void *p VT_LAMBDA_EXTRA_PARAMS(Params)) -> Ret {                  \
+    using Receiver = FIRST(Params);                                            \
+    return Impl<ALL_ARGS(TP)>::Name(                                           \
+        ::gen_interface_detail::receiver_from<Receiver, FIRST(TP)>(p)          \
+            CALL_EXTRA_ARGS(Params));                                          \
+  },
+
+#define IMPL_DYN_METHOD4_TUPLE(TP, M) IMPL_DYN_METHOD4_APPLY(TP, UNWRAP(M))
+#define IMPL_DYN_METHOD4_APPLY(TP, ...) IMPL_DYN_METHOD4(TP, __VA_ARGS__)
+#define IMPL_DYN_METHOD4(TP, Ret, Name, Params)                                \
+  static Ret Name(Dyn ANGLE_EXTRA_ARGS(TP) &&                                  \
+                  d VT_LAMBDA_EXTRA_PARAMS(Params)) {                          \
+    return d.vtable->Name(d.object CALL_EXTRA_ARGS(Params));                   \
+  }                                                                            \
+  static Ret Name(Dyn ANGLE_EXTRA_ARGS(TP) &                                   \
+                  d VT_LAMBDA_EXTRA_PARAMS(Params)) {                          \
+    return d.vtable->Name(d.object CALL_EXTRA_ARGS(Params));                   \
+  }                                                                            \
+  static Ret Name(Dyn ANGLE_EXTRA_ARGS(TP) *                                   \
+                  d VT_LAMBDA_EXTRA_PARAMS(Params)) {                          \
+    return d->vtable->Name(d->object CALL_EXTRA_ARGS(Params));                 \
+  }                                                                            \
+  static Ret Name(const Dyn ANGLE_EXTRA_ARGS(TP) &                             \
+                  d VT_LAMBDA_EXTRA_PARAMS(Params)) {                          \
+    return d.vtable->Name(d.object CALL_EXTRA_ARGS(Params));                   \
+  }                                                                            \
+  static Ret Name(const Dyn ANGLE_EXTRA_ARGS(TP) *                             \
+                  d VT_LAMBDA_EXTRA_PARAMS(Params)) {                          \
+    return d->vtable->Name(d->object CALL_EXTRA_ARGS(Params));                 \
   }
 
-private:
-  template <class T>
-  static int area_impl(T &&self) {
-    using U = trait_finally_fixed_detail::remove_cvref_t<T>;
+//--------------------------------------------------------------------
+//--------------------------------------------------------------------
+//--------------------------------------------------------------------
+//--------------------------------------------------------------------
+//  Mixin helpers (instance-method forwarding for non-static traits)
+//  C++23+: deducing this, no CRTP.
+//  C++20 : CRTP fallback.
+//--------------------------------------------------------------------
+#if (defined(__cpp_explicit_this_parameter) && __cpp_explicit_this_parameter >= 202110L) || defined(__clang__)
 
-    if constexpr (std::same_as<U, Dyn>) {
-      return self.area();
-    } else if constexpr (std::is_pointer_v<U>) {
-      return area_impl(*self);
-    } else if constexpr (requires { typename Shape::template Impl<U>; } &&
-                         requires { Shape::template Impl<U>::area(std::forward<T>(self)); }) {
-      return Shape::template Impl<U>::area(std::forward<T>(self));
-    } else if constexpr (trait_finally_fixed_detail::has_inner<U>) {
-      return area_impl(self.inner);
-    } else if constexpr (trait_finally_fixed_detail::has_get<U>) {
-      return area_impl(self.get());
-    } else if constexpr (trait_finally_fixed_detail::is_std_shared_ptr_v<U>) {
-      return self ? area_impl(*self) : 0;
-    } else if constexpr (trait_finally_fixed_detail::is_std_optional_v<U>) {
-      return self ? area_impl(*self) : 0;
-    } else if constexpr (trait_finally_fixed_detail::has_bool_and_deref<U>) {
-      return self ? area_impl(*self) : 0;
-    } else if constexpr (trait_finally_fixed_detail::is_std_array_v<U>) {
-      int acc = 0;
-      for (const auto &elem : self) acc += area_impl(elem);
-      return acc;
-    } else if constexpr (trait_finally_fixed_detail::is_slice_like<U>) {
-      int acc = 0;
-      for (std::size_t i = 0; i < self.count; ++i) acc += area_impl(self.ptr[i]);
-      return acc;
-    } else if constexpr (trait_finally_fixed_detail::is_std_variant_v<U>) {
-      return std::visit(
-          [](auto &&alt) -> int { return area_impl(std::forward<decltype(alt)>(alt)); },
-          self);
-    } else if constexpr (trait_finally_fixed_detail::is_tagged_union_like<U>) {
-      switch (self.kind) {
-      case U::Kind::value:
-        return area_impl(*self.value);
-      case U::Kind::other:
-        return 0;
-      }
-      return 0;
-    } else {
-      return 0;
-    }
+#define MIXIN_TEMPLATE_HEAD(TP)                                                \
+  MIXIN_TEMPLATE_HEAD_I(VA_COUNT(UNWRAP(TP)), UNWRAP(TP))
+#define MIXIN_TEMPLATE_HEAD_I(N, ...) MIXIN_TEMPLATE_HEAD_II(N, __VA_ARGS__)
+#define MIXIN_TEMPLATE_HEAD_II(N, ...) MIXIN_TEMPLATE_HEAD_##N(__VA_ARGS__)
+#define MIXIN_TEMPLATE_HEAD_1(A)
+#define MIXIN_TEMPLATE_HEAD_2(A, B) template <typename B>
+#define MIXIN_TEMPLATE_HEAD_3(A, B, C) template <typename B, typename C>
+
+#define MIXIN_METHOD_EXTRA_PARAMS(P)                                          \
+  MIXIN_METHOD_EXTRA_PARAMS_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
+#define MIXIN_METHOD_EXTRA_PARAMS_I(N, ...)                                    \
+  MIXIN_METHOD_EXTRA_PARAMS_II(N, __VA_ARGS__)
+#define MIXIN_METHOD_EXTRA_PARAMS_II(N, ...)                                   \
+  MIXIN_METHOD_EXTRA_PARAMS_##N(__VA_ARGS__)
+#define MIXIN_METHOD_EXTRA_PARAMS_1(S)
+#define MIXIN_METHOD_EXTRA_PARAMS_2(S, T1) , T1 p1
+#define MIXIN_METHOD_EXTRA_PARAMS_3(S, T1, T2) , T1 p1, T2 p2
+#define MIXIN_METHOD_EXTRA_PARAMS_4(S, T1, T2, T3) , T1 p1, T2 p2, T3 p3
+#define MIXIN_METHOD_EXTRA_PARAMS_5(S, T1, T2, T3, T4) , T1 p1, T2 p2, T3 p3, T4 p4
+
+#define MIXIN_METHOD4_TUPLE(NS, TP, M) MIXIN_METHOD4_APPLY(NS, TP, UNWRAP(M))
+#define MIXIN_METHOD4_APPLY(NS, TP, ...) MIXIN_METHOD4(TP, NS, __VA_ARGS__)
+#define MIXIN_METHOD4(TP, NS, Ret, Name, Params)                               \
+  Ret Name(this auto &self MIXIN_METHOD_EXTRA_PARAMS(Params)) {                     \
+    if constexpr (requires {                                                   \
+                    ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params)); \
+                  }) {                                                         \
+      if constexpr (std::is_void_v<Ret>) {                                     \
+        ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params));         \
+      } else {                                                                 \
+        return ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params));  \
+      }                                                                        \
+    } else {                                                                   \
+      if constexpr (std::is_void_v<Ret>) {                                     \
+        ::NS::Name ANGLE_EXTRA_ARGS(TP)(&self CALL_EXTRA_ARGS(Params));        \
+      } else {                                                                 \
+        return ::NS::Name ANGLE_EXTRA_ARGS(TP)(&self CALL_EXTRA_ARGS(Params)); \
+      }                                                                        \
+    }                                                                          \
   }
 
-  template <class T>
-  static void scale_impl(T &&self, int factor) {
-    using U = trait_finally_fixed_detail::remove_cvref_t<T>;
+#else
 
-    if constexpr (std::same_as<U, Dyn>) {
-      self.scale(factor);
-    } else if constexpr (std::is_pointer_v<U>) {
-      scale_impl(*self, factor);
-    } else if constexpr (requires { typename Shape::template Impl<U>; } &&
-                         requires { Shape::template Impl<U>::scale(std::addressof(self), factor); }) {
-      Shape::template Impl<U>::scale(std::addressof(self), factor);
-    } else if constexpr (trait_finally_fixed_detail::has_inner<U>) {
-      scale_impl(self.inner, factor);
-    } else if constexpr (trait_finally_fixed_detail::has_get<U>) {
-      scale_impl(self.get(), factor);
-    } else if constexpr (trait_finally_fixed_detail::is_std_shared_ptr_v<U>) {
-      if (self) scale_impl(*self, factor);
-    } else if constexpr (trait_finally_fixed_detail::is_std_optional_v<U>) {
-      if (self) scale_impl(*self, factor);
-    } else if constexpr (trait_finally_fixed_detail::has_bool_and_deref<U>) {
-      if (self) scale_impl(*self, factor);
-    } else if constexpr (trait_finally_fixed_detail::is_std_array_v<U>) {
-      for (auto &elem : self) scale_impl(elem, factor);
-    } else if constexpr (trait_finally_fixed_detail::is_slice_like<U>) {
-      for (std::size_t i = 0; i < self.count; ++i) scale_impl(self.ptr[i], factor);
-    } else if constexpr (trait_finally_fixed_detail::is_std_variant_v<U>) {
-      std::visit(
-          [&](auto &&alt) { scale_impl(std::forward<decltype(alt)>(alt), factor); },
-          self);
-    } else if constexpr (trait_finally_fixed_detail::is_tagged_union_like<U>) {
-      switch (self.kind) {
-      case U::Kind::value:
-        scale_impl(*self.value, factor);
-        break;
-      case U::Kind::other:
-        break;
-      }
-    } else {
-      (void)self;
-      (void)factor;
-    }
+#define MIXIN_TEMPLATE_HEAD(TP)                                                \
+  MIXIN_TEMPLATE_HEAD_I(VA_COUNT(UNWRAP(TP)), UNWRAP(TP))
+#define MIXIN_TEMPLATE_HEAD_I(N, ...) MIXIN_TEMPLATE_HEAD_II(N, __VA_ARGS__)
+#define MIXIN_TEMPLATE_HEAD_II(N, ...) MIXIN_TEMPLATE_HEAD_##N(__VA_ARGS__)
+#define MIXIN_TEMPLATE_HEAD_1(A) template <class Derived>
+#define MIXIN_TEMPLATE_HEAD_2(A, B) template <class Derived, typename B>
+#define MIXIN_TEMPLATE_HEAD_3(A, B, C)                                         \
+  template <class Derived, typename B, typename C>
+
+#define MIXIN_METHOD_PARAMS(P)                                          \
+  MIXIN_METHOD_PARAMS_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
+#define MIXIN_METHOD_PARAMS_I(N, ...)                                    \
+  MIXIN_METHOD_PARAMS_II(N, __VA_ARGS__)
+#define MIXIN_METHOD_PARAMS_II(N, ...)                                   \
+  MIXIN_METHOD_PARAMS_##N(__VA_ARGS__)
+#define MIXIN_METHOD_PARAMS_1(S)
+#define MIXIN_METHOD_PARAMS_2(S, T1) T1 p1
+#define MIXIN_METHOD_PARAMS_3(S, T1, T2) T1 p1, T2 p2
+#define MIXIN_METHOD_PARAMS_4(S, T1, T2, T3) T1 p1, T2 p2, T3 p3
+#define MIXIN_METHOD_PARAMS_5(S, T1, T2, T3, T4) T1 p1, T2 p2, T3 p3, T4 p4
+
+#define MIXIN_METHOD4_TUPLE(NS, TP, M) MIXIN_METHOD4_APPLY(NS, TP, UNWRAP(M))
+#define MIXIN_METHOD4_APPLY(NS, TP, ...) MIXIN_METHOD4(TP, NS, __VA_ARGS__)
+#define MIXIN_METHOD4(TP, NS, Ret, Name, Params)                               \
+  Ret Name(MIXIN_METHOD_PARAMS(Params)) {                                      \
+    if constexpr (requires {                                                   \
+                    ::NS::Name ANGLE_EXTRA_ARGS(TP)(static_cast<Derived &>(    \
+                        *this) CALL_EXTRA_ARGS(Params));                       \
+                  }) {                                                         \
+      if constexpr (std::is_void_v<decltype(::NS::Name ANGLE_EXTRA_ARGS(TP)(   \
+                        static_cast<Derived &>(*this)                          \
+                            CALL_EXTRA_ARGS(Params)))>) {                      \
+        ::NS::Name ANGLE_EXTRA_ARGS(TP)(static_cast<Derived &>(*this)          \
+                                            CALL_EXTRA_ARGS(Params));          \
+      } else {                                                                 \
+        return ::NS::Name ANGLE_EXTRA_ARGS(TP)(static_cast<Derived &>(*this)   \
+                                                   CALL_EXTRA_ARGS(Params));   \
+      }                                                                        \
+    } else {                                                                   \
+      if constexpr (std::is_void_v<decltype(::NS::Name ANGLE_EXTRA_ARGS(TP)(   \
+                        static_cast<Derived *>(this)                           \
+                            CALL_EXTRA_ARGS(Params)))>) {                      \
+        ::NS::Name ANGLE_EXTRA_ARGS(TP)(static_cast<Derived *>(this)           \
+                                            CALL_EXTRA_ARGS(Params));          \
+      } else {                                                                 \
+        return ::NS::Name ANGLE_EXTRA_ARGS(TP)(static_cast<Derived *>(this)    \
+                                                   CALL_EXTRA_ARGS(Params));   \
+      }                                                                        \
+    }                                                                          \
   }
 
-public:
-  template <class T>
-  static constexpr bool Trait = requires(T t) { Shape::area(t); };
+#endif
 
-  template <class T>
-  static constexpr bool model = Trait<T>;
-};
+#if (defined(__cpp_explicit_this_parameter) && __cpp_explicit_this_parameter >= 202110L) || defined(__clang__)
+#define MIXIN_BASE(TP) : Mixin ANGLE_EXTRA_ARGS(TP)
+#else
+#define MIXIN_BASE(TP) : Mixin<DYN_IMPL_SPEC_ARGS(TP)>
+#endif
 
-struct DoubleMap {
-  template <class T> struct Impl;
+//--------------------------------------------------------------------
+//  Strict operation macros (exact signature for non‑Dyn types)
+//--------------------------------------------------------------------
+#define STRICT_TRAIT_REQ4_TUPLE(TP, M) STRICT_TRAIT_REQ4_APPLY(TP, UNWRAP(M))
+#define STRICT_TRAIT_REQ4_APPLY(TP, ...) STRICT_TRAIT_REQ4(TP, __VA_ARGS__)
+#define STRICT_TRAIT_REQ4(TP, Ret, Name, Params)                               \
+  {Impl<ALL_ARGS(TP)>::Name(TUPLE_TO_DECLVALS(Params))}->std::same_as<Ret>;    \
+  {&Impl<ALL_ARGS(TP)>::Name}->std::same_as<Ret (*)(UNWRAP(Params))>;
 
-  template <class Self>
-  static auto doubled(Self &&self) {
-    return doubled_impl(std::forward<Self>(self));
+//--------------------------------------------------------------------
+//  Static trait helpers (duck)
+//--------------------------------------------------------------------
+#define DUCK_STATIC_TRAIT_ITEM(TP, tuple)                                      \
+  DUCK_STATIC_TRAIT_ITEM_I(TP, UNWRAP(tuple))
+#define DUCK_STATIC_TRAIT_ITEM_I(TP, ...)                                      \
+  DUCK_STATIC_TRAIT_ITEM_HELPER(TP, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
+#define DUCK_STATIC_TRAIT_ITEM_HELPER(TP, N, ...)                              \
+  DUCK_STATIC_TRAIT_ITEM_II(TP, N, __VA_ARGS__)
+#define DUCK_STATIC_TRAIT_ITEM_II(TP, N, ...)                                  \
+  DUCK_STATIC_TRAIT_ITEM_##N(TP, __VA_ARGS__)
+
+#define DUCK_STATIC_TRAIT_ITEM_2(TP, kword, Name)                              \
+  typename Impl<ALL_ARGS(TP)>::Name;
+#define DUCK_STATIC_TRAIT_ITEM_3(TP, Ret, Name, Params)                        \
+  {Impl<ALL_ARGS(TP)>::Name(TUPLE_TO_DECLVALS(Params))}->std::same_as<Ret>;
+
+#define DUCK_STATIC_TRAIT_FUNC(TP, tuple)                                      \
+  DUCK_STATIC_TRAIT_FUNC_I(TP, UNWRAP(tuple))
+#define DUCK_STATIC_TRAIT_FUNC_I(TP, ...)                                      \
+  DUCK_STATIC_TRAIT_FUNC_HELPER(TP, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
+#define DUCK_STATIC_TRAIT_FUNC_HELPER(TP, N, ...)                              \
+  DUCK_STATIC_TRAIT_FUNC_II(TP, N, __VA_ARGS__)
+#define DUCK_STATIC_TRAIT_FUNC_II(TP, N, ...)                                  \
+  DUCK_STATIC_TRAIT_FUNC_##N(TP, __VA_ARGS__)
+
+#define DUCK_STATIC_TRAIT_FUNC_2(TP, kword, Name)
+#define DUCK_STATIC_TRAIT_FUNC_3(TP, Ret, Name, Params)                        \
+  FREE_FUNC4(TP, Ret, Name, Params)
+
+//--------------------------------------------------------------------
+//  Static trait helpers (strict)
+//--------------------------------------------------------------------
+#define STRICT_STATIC_TRAIT_ITEM(TP, tuple)                                    \
+  STRICT_STATIC_TRAIT_ITEM_I(TP, UNWRAP(tuple))
+#define STRICT_STATIC_TRAIT_ITEM_I(TP, ...)                                    \
+  STRICT_STATIC_TRAIT_ITEM_HELPER(TP, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
+#define STRICT_STATIC_TRAIT_ITEM_HELPER(TP, N, ...)                            \
+  STRICT_STATIC_TRAIT_ITEM_II(TP, N, __VA_ARGS__)
+#define STRICT_STATIC_TRAIT_ITEM_II(TP, N, ...)                                \
+  STRICT_STATIC_TRAIT_ITEM_##N(TP, __VA_ARGS__)
+
+#define STRICT_STATIC_TRAIT_ITEM_2(TP, kword, Name)                            \
+  typename Impl<ALL_ARGS(TP)>::Name;
+#define STRICT_STATIC_TRAIT_ITEM_3(TP, Ret, Name, Params)                      \
+  {Impl<ALL_ARGS(TP)>::Name(TUPLE_TO_DECLVALS(Params))}->std::same_as<Ret>;    \
+  {&Impl<ALL_ARGS(TP)>::Name}->std::same_as<Ret (*)(UNWRAP(Params))>;
+
+#define STRICT_STATIC_TRAIT_FUNC(TP, tuple)                                    \
+  STRICT_STATIC_TRAIT_FUNC_I(TP, UNWRAP(tuple))
+#define STRICT_STATIC_TRAIT_FUNC_I(TP, ...)                                    \
+  STRICT_STATIC_TRAIT_FUNC_HELPER(TP, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
+#define STRICT_STATIC_TRAIT_FUNC_HELPER(TP, N, ...)                            \
+  STRICT_STATIC_TRAIT_FUNC_II(TP, N, __VA_ARGS__)
+#define STRICT_STATIC_TRAIT_FUNC_II(TP, N, ...)                                \
+  STRICT_STATIC_TRAIT_FUNC_##N(TP, __VA_ARGS__)
+
+#define STRICT_STATIC_TRAIT_FUNC_2(TP, kword, Name) /* nothing */
+#define STRICT_STATIC_TRAIT_FUNC_3(TP, Ret, Name, Params)                      \
+  FREE_FUNC4(TP, Ret, Name, Params)
+
+//--------------------------------------------------------------------
+//  Main macros
+//--------------------------------------------------------------------
+
+#define DuckTrait(NS, TP, ...)                                                 \
+  namespace NS {                                                               \
+  TEMPLATE_DECL(TP) struct Dyn;                                                \
+  template <TYPENAME_LIST(TP)> struct Impl;                                    \
+  template <TYPENAME_LIST(TP)>                                                 \
+  concept Trait = requires(FIRST(TP) t) {                                      \
+    FOR_EACH_WITH(DUCK_TRAIT_REQ4_TUPLE, TP, __VA_ARGS__)                      \
+  };                                                                           \
+  FOR_EACH_WITH(FREE_FUNC4_TUPLE, TP, __VA_ARGS__)                             \
+  MIXIN_TEMPLATE_HEAD(TP) struct Mixin {                                       \
+    FOR_EACH_WITH2(MIXIN_METHOD4_TUPLE, NS, TP, __VA_ARGS__)                        \
+  };                                                                           \
+  TEMPLATE_DECL(TP) struct VTable {                                            \
+    FOR_EACH_WITH(VTABLE_MEMBER4_TUPLE, TP, __VA_ARGS__)                       \
+  };                                                                           \
+  template <TYPENAME_LIST(TP)>                                                 \
+    requires Trait<ALL_ARGS(TP)>                                               \
+  inline static const VTable ANGLE_EXTRA_ARGS(TP) vt = {                       \
+      FOR_EACH_WITH(VT_ENTRY4_TUPLE, TP, __VA_ARGS__)};                        \
+  TEMPLATE_DECL(TP) struct Dyn MIXIN_BASE(TP) {                                \
+    void *object;                                                              \
+    const VTable ANGLE_EXTRA_ARGS(TP) * vtable;                                \
+    DYN_CTOR_CONSTRAINT(TP)                                                    \
+    Dyn(FIRST(TP) & value) : object(&value), vtable(&vt<ALL_ARGS(TP)>) {}      \
+    DYN_CTOR_CONSTRAINT(TP)                                                    \
+    Dyn &operator=(FIRST(TP) & value) {                                        \
+      object = &value;                                                         \
+      vtable = &vt<ALL_ARGS(TP)>;                                              \
+      return *this;                                                            \
+    }                                                                          \
+  };                                                                           \
+  TEMPLATE_DECL(TP) IMPL_SPEC_HEAD(TP) struct Impl<DYN_IMPL_SPEC_ARGS(TP)> {   \
+    FOR_EACH_WITH(IMPL_DYN_METHOD4_TUPLE, TP, __VA_ARGS__)                     \
+  };                                                                           \
   }
 
-  template <class T>
-  static constexpr bool Trait = requires(T t) { DoubleMap::doubled(t); };
-
-private:
-  template <class T>
-  static auto doubled_impl(T &&self) {
-    using U = trait_finally_fixed_detail::remove_cvref_t<T>;
-
-    if constexpr (requires { typename DoubleMap::template Impl<U>; } &&
-                  requires { DoubleMap::template Impl<U>::doubled(std::forward<T>(self)); }) {
-      return DoubleMap::template Impl<U>::doubled(std::forward<T>(self));
-    } else if constexpr (trait_finally_fixed_detail::is_std_array_v<U>) {
-      U out{};
-      for (std::size_t i = 0; i < self.size(); ++i) {
-        out[i] = doubled_impl(self[i]);
-      }
-      return out;
-    } else if constexpr (trait_finally_fixed_detail::has_inner<U>) {
-      U out = self;
-      out.inner = doubled_impl(self.inner);
-      return out;
-    } else if constexpr (trait_finally_fixed_detail::is_std_variant_v<U>) {
-      return std::visit(
-          [](auto &&alt) -> U { return U{doubled_impl(std::forward<decltype(alt)>(alt))}; },
-          self);
-    } else {
-      return self;
-    }
-  }
-};
-
-struct ScaleMap {
-  template <class T> struct Impl;
-
-  template <class Self>
-  static void scale(Self &&self, int factor) {
-    scale_impl(std::forward<Self>(self), factor);
+#define StaticDuckTrait(NS, TP, ...)                                           \
+  namespace NS {                                                               \
+  template <TYPENAME_LIST(TP)> struct Impl;                                    \
+  template <TYPENAME_LIST(TP)>                                                 \
+  concept Trait = requires(FIRST(TP) t) {                                      \
+    FOR_EACH_WITH(DUCK_STATIC_TRAIT_ITEM, TP, __VA_ARGS__)                     \
+  };                                                                           \
+  FOR_EACH_WITH(DUCK_STATIC_TRAIT_FUNC, TP, __VA_ARGS__)                       \
   }
 
-  template <class T>
-  static constexpr bool Trait = requires(T t) { ScaleMap::scale(&t, 0); };
-
-private:
-  template <class T>
-  static void scale_impl(T &&self, int factor) {
-    using U = trait_finally_fixed_detail::remove_cvref_t<T>;
-
-    if constexpr (requires { typename ScaleMap::template Impl<U>; } &&
-                  requires { ScaleMap::template Impl<U>::scale(std::addressof(self), factor); }) {
-      ScaleMap::template Impl<U>::scale(std::addressof(self), factor);
-    } else if constexpr (std::is_pointer_v<U>) {
-      scale_impl(*self, factor);
-    } else if constexpr (trait_finally_fixed_detail::is_slice_like<U>) {
-      for (std::size_t i = 0; i < self.count; ++i) {
-        scale_impl(self.ptr[i], factor);
-      }
-    } else if constexpr (trait_finally_fixed_detail::has_inner<U>) {
-      scale_impl(self.inner, factor);
-    } else if constexpr (trait_finally_fixed_detail::has_get<U>) {
-      scale_impl(self.get(), factor);
-    } else if constexpr (trait_finally_fixed_detail::is_std_array_v<U>) {
-      for (auto &elem : self) scale_impl(elem, factor);
-    } else if constexpr (trait_finally_fixed_detail::is_std_shared_ptr_v<U>) {
-      if (self) scale_impl(*self, factor);
-    } else if constexpr (trait_finally_fixed_detail::is_std_optional_v<U>) {
-      if (self) scale_impl(*self, factor);
-    } else if constexpr (trait_finally_fixed_detail::has_bool_and_deref<U>) {
-      if (self) scale_impl(*self, factor);
-    } else if constexpr (trait_finally_fixed_detail::is_std_variant_v<U>) {
-      std::visit(
-          [&](auto &&alt) { scale_impl(std::forward<decltype(alt)>(alt), factor); },
-          self);
-    } else if constexpr (trait_finally_fixed_detail::is_tagged_union_like<U>) {
-      switch (self.kind) {
-      case U::Kind::value:
-        scale_impl(*self.value, factor);
-        break;
-      case U::Kind::other:
-        break;
-      }
-    } else {
-      (void)self;
-      (void)factor;
-    }
-  }
-};
-
-struct Into {
-  template <class T, class O>
-  struct Impl;
-
-  template <class Out>
-  struct Dyn {
-    struct vtable_t {
-      Out (*into)(const void *);
-    };
-
-    std::shared_ptr<void> storage;
-    const vtable_t *vt = nullptr;
-
-    Dyn() = default;
-
-    template <class T>
-    requires(!std::same_as<trait_finally_fixed_detail::remove_cvref_t<T>, Dyn>)
-    Dyn(T &&value) {
-      emplace<trait_finally_fixed_detail::remove_cvref_t<T>>(std::forward<T>(value));
-    }
-
-    Dyn(const Dyn &) = default;
-    Dyn(Dyn &&) noexcept = default;
-    Dyn &operator=(const Dyn &) = default;
-    Dyn &operator=(Dyn &&) noexcept = default;
-
-    template <class T>
-    requires(!std::same_as<trait_finally_fixed_detail::remove_cvref_t<T>, Dyn>)
-    Dyn &operator=(T &&value) {
-      emplace<trait_finally_fixed_detail::remove_cvref_t<T>>(std::forward<T>(value));
-      return *this;
-    }
-
-    Out into() const { return vt->into(storage.get()); }
-
-  private:
-    template <class T, class U>
-    void emplace(U &&value) {
-      storage = std::make_shared<T>(std::forward<U>(value));
-      vt = &table<T>();
-    }
-
-    template <class T>
-    static const vtable_t &table() {
-      static const vtable_t vt{
-          +[](const void *p) -> Out {
-            return Into::template into<Out>(*static_cast<const T *>(p));
-          }};
-      return vt;
-    }
-
-    friend struct Into;
-  };
-
-  template <class Out, class Self>
-  static Out into(Self &&self) {
-    return into_impl<Out>(std::forward<Self>(self));
+#define StrictTrait(NS, TP, ...)                                               \
+  namespace NS {                                                               \
+  TEMPLATE_DECL(TP) struct Dyn;                                                \
+  template <TYPENAME_LIST(TP)> struct Impl;                                    \
+  template <typename> struct TraitIsDyn : std::false_type {};                  \
+  TEMPLATE_DECL(TP)                                                            \
+  IMPL_SPEC_HEAD(TP)                                                           \
+  struct TraitIsDyn<Dyn ANGLE_EXTRA_ARGS(TP)> : std::true_type {};             \
+  template <TYPENAME_LIST(TP)>                                                 \
+  concept TraitStrict = requires(FIRST(TP) t) {                                \
+    FOR_EACH_WITH(STRICT_TRAIT_REQ4_TUPLE, TP, __VA_ARGS__)                    \
+  };                                                                           \
+  template <TYPENAME_LIST(TP)>                                                 \
+  concept TraitDuck = requires(FIRST(TP) t) {                                  \
+    FOR_EACH_WITH(DUCK_TRAIT_REQ4_TUPLE, TP, __VA_ARGS__)                      \
+  };                                                                           \
+  template <TYPENAME_LIST(TP)>                                                 \
+  concept Trait = (TraitIsDyn<std::remove_cvref_t<FIRST(TP)>>::value &&        \
+                   TraitDuck<ALL_ARGS(TP)>) ||                                 \
+                  (!TraitIsDyn<std::remove_cvref_t<FIRST(TP)>>::value &&       \
+                   TraitStrict<ALL_ARGS(TP)>);                                 \
+  FOR_EACH_WITH(FREE_FUNC4_TUPLE, TP, __VA_ARGS__)                             \
+  MIXIN_TEMPLATE_HEAD(TP) struct Mixin {                                       \
+    FOR_EACH_WITH2(MIXIN_METHOD4_TUPLE, NS, TP, __VA_ARGS__)                        \
+  };                                                                           \
+  TEMPLATE_DECL(TP) struct VTable {                                            \
+    FOR_EACH_WITH(VTABLE_MEMBER4_TUPLE, TP, __VA_ARGS__)                       \
+  };                                                                           \
+  template <TYPENAME_LIST(TP)>                                                 \
+    requires Trait<ALL_ARGS(TP)>                                               \
+  inline static const VTable ANGLE_EXTRA_ARGS(TP) vt = {                       \
+      FOR_EACH_WITH(VT_ENTRY4_TUPLE, TP, __VA_ARGS__)};                        \
+  TEMPLATE_DECL(TP) struct Dyn MIXIN_BASE(TP) {                                \
+    void *object;                                                              \
+    const VTable ANGLE_EXTRA_ARGS(TP) * vtable;                                \
+    DYN_CTOR_CONSTRAINT(TP)                                                    \
+    Dyn(FIRST(TP) & value) : object(&value), vtable(&vt<ALL_ARGS(TP)>) {}      \
+    DYN_CTOR_CONSTRAINT(TP)                                                    \
+    Dyn &operator=(FIRST(TP) & value) {                                        \
+      object = &value;                                                         \
+      vtable = &vt<ALL_ARGS(TP)>;                                              \
+      return *this;                                                            \
+    }                                                                          \
+  };                                                                           \
+  TEMPLATE_DECL(TP) IMPL_SPEC_HEAD(TP) struct Impl<DYN_IMPL_SPEC_ARGS(TP)> {   \
+    FOR_EACH_WITH(IMPL_DYN_METHOD4_TUPLE, TP, __VA_ARGS__)                     \
+  };                                                                           \
   }
 
-private:
-  template <class Out, class T>
-  static Out into_impl(T &&self) {
-    using U = trait_finally_fixed_detail::remove_cvref_t<T>;
-
-    if constexpr (std::same_as<U, Dyn<Out>>) {
-      return self.into();
-    } else if constexpr (requires { typename Into::template Impl<U, Out>; } &&
-                         requires { Into::template Impl<U, Out>::into(std::forward<T>(self)); }) {
-      return Into::template Impl<U, Out>::into(std::forward<T>(self));
-    } else if constexpr (std::is_convertible_v<T, Out>) {
-      return static_cast<Out>(std::forward<T>(self));
-    } else {
-      return Out{};
-    }
+#define StrictStaticTrait(NS, TP, ...)                                         \
+  namespace NS {                                                               \
+  template <TYPENAME_LIST(TP)> struct Impl;                                    \
+  template <TYPENAME_LIST(TP)>                                                 \
+  concept Trait = requires(FIRST(TP) t) {                                      \
+    FOR_EACH_WITH(STRICT_STATIC_TRAIT_ITEM, TP, __VA_ARGS__)                   \
+  };                                                                           \
+  FOR_EACH_WITH(STRICT_STATIC_TRAIT_FUNC, TP, __VA_ARGS__)                     \
   }
 
-public:
-  template <class T, class Out>
-  static constexpr bool Trait = requires(T t) { Into::template into<Out>(t); };
+//--------------------------------------------------------------------
+//  Frontend wrappers
+//--------------------------------------------------------------------
+#define trait(...) TRAIT_EXPAND_1(__VA_ARGS__)
+#define TRAIT_EXPAND_1(...) TRAIT_EXPAND_2(__VA_ARGS__)
+#define TRAIT_EXPAND_2(Name, TP, MethodsTuple)                                 \
+  TRAIT_EXPAND_3(Name, TP, UNWRAP_I MethodsTuple)
+#define TRAIT_EXPAND_3(Name, TP, ...) StrictTrait(Name, TP, __VA_ARGS__)
 
-  template <class T, class Out>
-  static constexpr bool model = Trait<T, Out>;
-};
+#define static_trait(...) STATIC_TRAIT_EXPAND_1(__VA_ARGS__)
+#define STATIC_TRAIT_EXPAND_1(...) STATIC_TRAIT_EXPAND_2(__VA_ARGS__)
+#define STATIC_TRAIT_EXPAND_2(Name, TP, MethodsTuple)                          \
+  STATIC_TRAIT_EXPAND_3(Name, TP, UNWRAP_I MethodsTuple)
+#define STATIC_TRAIT_EXPAND_3(Name, TP, ...)                                   \
+  StrictStaticTrait(Name, TP, __VA_ARGS__)
 
-struct Test {
-  template <class T> struct Impl;
+#define ducktyped_trait(...) DUCKTYPED_TRAIT_EXPAND_1(__VA_ARGS__)
+#define DUCKTYPED_TRAIT_EXPAND_1(...) DUCKTYPED_TRAIT_EXPAND_2(__VA_ARGS__)
+#define DUCKTYPED_TRAIT_EXPAND_2(Name, TP, MethodsTuple)                       \
+  DUCKTYPED_TRAIT_EXPAND_3(Name, TP, UNWRAP_I MethodsTuple)
+#define DUCKTYPED_TRAIT_EXPAND_3(Name, TP, ...) DuckTrait(Name, TP, __VA_ARGS__)
 
-  template <class T, class F>
-  static decltype(auto) test(T &&value, F &&factor) {
-    using U = trait_finally_fixed_detail::remove_cvref_t<T>;
-    return Impl<U>::test(std::forward<T>(value), std::forward<F>(factor));
-  }
+#define static_ducktyped_trait(...) STATIC_DUCKTYPED_TRAIT_EXPAND_1(__VA_ARGS__)
+#define STATIC_DUCKTYPED_TRAIT_EXPAND_1(...)                                   \
+  STATIC_DUCKTYPED_TRAIT_EXPAND_2(__VA_ARGS__)
+#define STATIC_DUCKTYPED_TRAIT_EXPAND_2(Name, TP, MethodsTuple)                \
+  STATIC_DUCKTYPED_TRAIT_EXPAND_3(Name, TP, UNWRAP_I MethodsTuple)
+#define STATIC_DUCKTYPED_TRAIT_EXPAND_3(Name, TP, ...)                         \
+  StaticDuckTrait(Name, TP, __VA_ARGS__)
 
-  template <class T>
-  static constexpr bool Trait = requires(T t) {
-    typename Impl<trait_finally_fixed_detail::remove_cvref_t<T>>::Factor;
-    Test::test(t, typename Impl<trait_finally_fixed_detail::remove_cvref_t<T>>::Factor{});
-  };
-};
-
-// -----------------------------------------------------------------------------
-// Macro-backed public declarations used by the example
-// -----------------------------------------------------------------------------
-#define TRAIT_BUILD_Shape
-#define TRAIT_BUILD_DoubleMap
-#define TRAIT_BUILD_ScaleMap
-#define TRAIT_STATIC_BUILD_Test
-#define TRAIT_DUCK_BUILD_Into
-#define TRAIT_STATIC_DUCK_BUILD_Into
-
-#endif // TRAIT_FINALY_FIXED_HPP
+#endif // TRAIT_GENERATION_H
