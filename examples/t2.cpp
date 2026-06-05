@@ -30,8 +30,7 @@ struct Functor::Impl<Box<T>> {
 
   template <class F>
   static auto map(Box<T> b, F&& fn) -> Mapped<std::remove_cvref_t<std::invoke_result_t<F&, T>>> {
-    using Out = std::remove_cvref_t<std::invoke_result_t<F&, T>>;
-    return Mapped<Out>{std::invoke(std::forward<F>(fn), b.inner)};
+    return Mapped{std::invoke(std::forward<F>(fn), b.inner)};
   }
 };
 
