@@ -23,6 +23,11 @@ constexpr decltype(auto) receiver_from(void *p) {
     return *static_cast<std::remove_reference_t<Receiver> *>(p);
 }
 
+template <class Ret, class... Args>
+struct probe_callable {
+  constexpr Ret operator()(Args...) const noexcept;
+};
+
 } // namespace gen_interface_detail
 
 //--------------------------------------------------------------------
@@ -818,11 +823,404 @@ constexpr decltype(auto) receiver_from(void *p) {
 #define HOF_ARG_TYPE_II(N, ...) HOF_ARG_TYPE_##N(__VA_ARGS__)
 #define HOF_ARG_TYPE_2(Self, FnTuple) HOF_SECOND(FnTuple)
 
-// hof(ReturnSpec, Name, (Self, fn(ArgType)))
-// expands to the same internal representation as the working callable-based
-// trait engine.
+// Higher-order signature helper:
+//   fn((ArgType), (type, RetType))
+//   fn((ArgType), (template, TemplateName))
+// The surrounding hof(...) item still declares the trait-level return shape.
+#define fn(...) (fn, __VA_ARGS__)
+
+#define HOF_IS_FN(x) CHECK(CAT(HOF_IS_FN_, x))
+#define HOF_IS_FN_fn PROBE(~)
+
+#define HOF_FIRST_2(A, B) A
+#define HOF_FIRST_3(A, B, C) A
+#define HOF_FIRST(P) HOF_FIRST_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
+#define HOF_FIRST_I(N, ...) HOF_FIRST_II(N, __VA_ARGS__)
+#define HOF_FIRST_II(N, ...) HOF_FIRST_##N(__VA_ARGS__)
+
+#define HOF_SECOND_2(A, B) B
+#define HOF_SECOND_3(A, B, C) B
+#define HOF_SECOND(P) HOF_SECOND_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
+#define HOF_SECOND_I(N, ...) HOF_SECOND_II(N, __VA_ARGS__)
+#define HOF_SECOND_II(N, ...) HOF_SECOND_##N(__VA_ARGS__)
+
+#define HOF_THIRD_3(A, B, C) C
+#define HOF_THIRD(P) HOF_THIRD_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
+#define HOF_THIRD_I(N, ...) HOF_THIRD_II(N, __VA_ARGS__)
+#define HOF_THIRD_II(N, ...) HOF_THIRD_##N(__VA_ARGS__)
+
+#define HOF_FN_ARG(Fn) HOF_SECOND(Fn)
+#define HOF_FN_RET(Fn) HOF_THIRD(Fn)
+
+#define HOF_ARG_NAME(Arg) TYPE_SPEC(Arg)
+#define HOF_IS_VALUE_TYPE(x) CHECK(CAT(HOF_IS_VALUE_TYPE_, x))
+#define HOF_IS_VALUE_TYPE_value_type PROBE(~)
+#define HOF_ARG_EXPR(TP, Arg) CAT(HOF_ARG_EXPR_, HOF_IS_VALUE_TYPE(HOF_ARG_NAME(Arg)))(TP, Arg)
+#define HOF_ARG_EXPR_0(TP, Arg) TYPE_SPEC(Arg)
+#define HOF_ARG_EXPR_1(TP, Arg) typename Impl<ALL_ARGS(TP)>::value_type
+
+#define HOF_RET_IS_TEMPLATE(Ret) CAT(HOF_RET_IS_TEMPLATE_, IS_PAREN(Ret))(Ret)
+#define HOF_RET_IS_TEMPLATE_0(Ret) 0
+#define HOF_RET_IS_TEMPLATE_1(Ret) IS_TEMPLATE(FIRST(Ret))
+
+#define HOF_RET_TEMPLATE_NAME(Ret)                                             \
+  HOF_RET_TEMPLATE_NAME_I(VA_COUNT(UNWRAP(Ret)), UNWRAP(Ret))
+#define HOF_RET_TEMPLATE_NAME_I(N, ...) HOF_RET_TEMPLATE_NAME_II(N, __VA_ARGS__)
+#define HOF_RET_TEMPLATE_NAME_II(N, ...) HOF_RET_TEMPLATE_NAME_##N(__VA_ARGS__)
+#define HOF_RET_TEMPLATE_NAME_2(kind, TemplateName) TemplateName
+#define HOF_RET_TEMPLATE_NAME_3(kind, TemplateName, AssocTuple) TemplateName
+
+#define HOF_EXPECTED_RETURN_VALUE(TP, Ret)                                     \
+  CAT(HOF_EXPECTED_RETURN_VALUE_, IS_PAREN(Ret))(TP, Ret)
+#define HOF_EXPECTED_RETURN_VALUE_0(TP, Ret) TYPE_SPEC(Ret)
+#define HOF_EXPECTED_RETURN_VALUE_1(TP, Ret)                                   \
+  CAT(HOF_EXPECTED_RETURN_VALUE_1_, HOF_RET_IS_TEMPLATE(Ret))(TP, Ret)
+#define HOF_EXPECTED_RETURN_VALUE_1_1(TP, Ret)                                 \
+  typename Impl<ALL_ARGS(TP)>::template HOF_RET_TEMPLATE_NAME(Ret)<           \
+      typename Impl<ALL_ARGS(TP)>::value_type>
+#define HOF_EXPECTED_RETURN_VALUE_1_0(TP, Ret) TYPE_SPEC(Ret)
+
+#define HOF_INVOKE_RESULT(F, TP)                                                \
+  std::remove_cvref_t<                                                         \
+      std::invoke_result_t<F &, typename Impl<ALL_ARGS(TP)>::value_type>>
+
+#define HOF_WRAPPER_RETURN(TP, Ret, F)                                         \
+  CAT(HOF_WRAPPER_RETURN_, IS_PAREN(Ret))(TP, Ret, F)
+#define HOF_WRAPPER_RETURN_0(TP, Ret, F) TYPE_SPEC(Ret)
+#define HOF_WRAPPER_RETURN_1(TP, Ret, F)                                       \
+  CAT(HOF_WRAPPER_RETURN_1_, HOF_RET_IS_TEMPLATE(Ret))(TP, Ret, F)
+#define HOF_WRAPPER_RETURN_1_1(TP, Ret, F)                                     \
+  typename Impl<ALL_ARGS(TP)>::template HOF_RET_TEMPLATE_NAME(Ret)<           \
+      HOF_INVOKE_RESULT(F, TP)>
+#define HOF_WRAPPER_RETURN_1_0(TP, Ret, F) TYPE_SPEC(Ret)
+
+#define HOF_WRAPPER_REQUIRES(TP, Ret, F)                                       \
+  CAT(HOF_WRAPPER_REQUIRES_, IS_PAREN(Ret))(TP, Ret, F)
+#define HOF_WRAPPER_REQUIRES_0(TP, Ret, F)                                     \
+  std::same_as<HOF_INVOKE_RESULT(F, TP), TYPE_SPEC(Ret)>
+#define HOF_WRAPPER_REQUIRES_1(TP, Ret, F)                                     \
+  CAT(HOF_WRAPPER_REQUIRES_1_, HOF_RET_IS_TEMPLATE(Ret))(TP, Ret, F)
+#define HOF_WRAPPER_REQUIRES_1_1(TP, Ret, F) true
+#define HOF_WRAPPER_REQUIRES_1_0(TP, Ret, F)                                   \
+  std::same_as<HOF_INVOKE_RESULT(F, TP), TYPE_SPEC(Ret)>
+
+#define HOF_PARAM_TYPE(Fn) TYPE_SPEC(HOF_FN_ARG(Fn))
+
+#define HOF_ITEM_KIND(TP, A, Name, Params)                                     \
+  CAT(HOF_ITEM_KIND_, HOF_IS_FN(FIRST(A)))(TP, A, Name, Params)
+#define HOF_ITEM_KIND_0(TP, A, Name, Params)                                   \
+  {Impl<ALL_ARGS(TP)>::Name(TUPLE_TO_DECLVALS(Params))}                        \
+      ->std::same_as<TYPE_SPEC(A)>;
+#define HOF_ITEM_KIND_1(TP, A, Name, Params)                                   \
+  {Impl<ALL_ARGS(TP)>::Name(TUPLE_TO_DECLVALS(Params),                        \
+                            ::gen_interface_detail::identity_callable{})}     \
+      ->std::same_as<HOF_EXPECTED_RETURN_VALUE(TP, HOF_FN_RET(A))>;
+
+#define HOF_FUNC_KIND(TP, A, Name, Params)                                     \
+  CAT(HOF_FUNC_KIND_, HOF_IS_FN(FIRST(A)))(TP, A, Name, Params)
+#define HOF_FUNC_KIND_0(TP, A, Name, Params)                                   \
+  FREE_FUNC4(TP, A, Name, Params)
+#define HOF_FUNC_KIND_1(TP, A, Name, Params)                                   \
+  template <Trait ALL_ARGS(TP), typename F>                                    \
+    requires std::invocable<F &, HOF_ARG_EXPR(TP, HOF_FN_ARG(A))> &&            \
+             HOF_WRAPPER_REQUIRES(TP, HOF_FN_RET(A), F)                        \
+  auto Name(FUNC_PARAMS(Params), F &&fn) -> HOF_WRAPPER_RETURN(TP,           \
+                                                               HOF_FN_RET(A), F) { \
+    return Impl<ALL_ARGS(TP)>::Name(CALL_ARGS(Params), std::forward<F>(fn));   \
+  }
+
+#undef STRICT_STATIC_TRAIT_ITEM_3_KIND_1
+#undef STRICT_STATIC_TRAIT_FUNC_3_KIND_1
+#undef DUCK_STATIC_TRAIT_ITEM_3_KIND_1
+#undef DUCK_STATIC_TRAIT_FUNC_3_KIND_1
+
+#define STRICT_STATIC_TRAIT_ITEM_3_KIND_1(TP, A, Name, Params)                 \
+  HOF_ITEM_KIND(TP, A, Name, Params)
+#define STRICT_STATIC_TRAIT_FUNC_3_KIND_1(TP, A, Name, Params)                 \
+  HOF_FUNC_KIND(TP, A, Name, Params)
+#define DUCK_STATIC_TRAIT_ITEM_3_KIND_1(TP, A, Name, Params)                   \
+  HOF_ITEM_KIND(TP, A, Name, Params)
+#define DUCK_STATIC_TRAIT_FUNC_3_KIND_1(TP, A, Name, Params)                   \
+  HOF_FUNC_KIND(TP, A, Name, Params)
+
+// User-facing syntax:
+//   hof((template, Mapped, (U)), map, (Self, fn((value_type), (template, Mapped))))
+//   hof((type, bool), test, (Self, fn((value_type), (type, bool))))
 #define hof(Ret, Name, Params)                                                 \
-  ((callable, HOF_TEMPLATE_NAME(Ret), HOF_ARG_TYPE(Params)), Name,            \
-   (HOF_FIRST(Params)))
+  ((fn, HOF_FN_ARG(HOF_SECOND(Params)), Ret), Name, (HOF_FIRST(Params)))
+
+#define fn(Return, ...) (fn, Return, __VA_ARGS__)
+
+#define IS_HOF_MARKER(x) CHECK(CAT(IS_HOF_MARKER_, x))
+#define IS_HOF_MARKER_hof PROBE(~)
+
+#define HOF_SECOND_2(A, B) B
+#define HOF_SECOND_3(A, B, C) B
+#define HOF_SECOND_4(A, B, C, D) B
+#define HOF_SECOND_5(A, B, C, D, E) B
+#define HOF_SECOND_6(A, B, C, D, E, F) B
+#define HOF_SECOND_7(A, B, C, D, E, F, G) B
+#define HOF_ITEM_FN(A) HOF_SECOND(A)
+#define HOF_SECOND(P) HOF_SECOND_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
+#define HOF_SECOND_I(N, ...) HOF_SECOND_II(N, __VA_ARGS__)
+#define HOF_SECOND_II(N, ...) HOF_SECOND_##N(__VA_ARGS__)
+
+#define HOF_LAST_2(A, B) B
+#define HOF_LAST_3(A, B, C) C
+#define HOF_LAST_4(A, B, C, D) D
+#define HOF_LAST_5(A, B, C, D, E) E
+#define HOF_LAST_6(A, B, C, D, E, F) F
+#define HOF_LAST_7(A, B, C, D, E, F, G) G
+#define HOF_LAST(P) HOF_LAST_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
+#define HOF_LAST_I(N, ...) HOF_LAST_II(N, __VA_ARGS__)
+#define HOF_LAST_II(N, ...) HOF_LAST_##N(__VA_ARGS__)
+
+#define HOF_BUTLAST_2(A, B) (A)
+#define HOF_BUTLAST_3(A, B, C) (A, B)
+#define HOF_BUTLAST_4(A, B, C, D) (A, B, C)
+#define HOF_BUTLAST_5(A, B, C, D, E) (A, B, C, D)
+#define HOF_BUTLAST_6(A, B, C, D, E, F) (A, B, C, D, E)
+#define HOF_BUTLAST_7(A, B, C, D, E, F, G) (A, B, C, D, E, F)
+#define HOF_BUTLAST(P) HOF_BUTLAST_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
+#define HOF_BUTLAST_I(N, ...) HOF_BUTLAST_II(N, __VA_ARGS__)
+#define HOF_BUTLAST_II(N, ...) HOF_BUTLAST_##N(__VA_ARGS__)
+
+#define HOF_FN_RET(Fn) HOF_SECOND(Fn)
+
+#define HOF_FN_ARGS_2(Marker, Ret) ()
+#define HOF_FN_ARGS_3(Marker, Ret, A1) (A1)
+#define HOF_FN_ARGS_4(Marker, Ret, A1, A2) (A1, A2)
+#define HOF_FN_ARGS_5(Marker, Ret, A1, A2, A3) (A1, A2, A3)
+#define HOF_FN_ARGS_6(Marker, Ret, A1, A2, A3, A4) (A1, A2, A3, A4)
+#define HOF_FN_ARGS_7(Marker, Ret, A1, A2, A3, A4, A5) (A1, A2, A3, A4, A5)
+#define HOF_FN_ARGS(Fn) HOF_FN_ARGS_I(VA_COUNT(UNWRAP(Fn)), UNWRAP(Fn))
+#define HOF_FN_ARGS_I(N, ...) HOF_FN_ARGS_II(N, __VA_ARGS__)
+#define HOF_FN_ARGS_II(N, ...) HOF_FN_ARGS_##N(__VA_ARGS__)
+#define HOF_FN_ARGS_EVAL(Fn) HOF_FN_ARGS(Fn)
+#define HOF_FN_ARGS_UNWRAP(Fn) UNWRAP(HOF_FN_ARGS_EVAL(Fn))
+
+#define HOF_ARG_NAME(Arg) TYPE_SPEC(Arg)
+#define HOF_IS_VALUE_TYPE(x) CHECK(CAT(HOF_IS_VALUE_TYPE_, x))
+#define HOF_IS_VALUE_TYPE_value_type PROBE(~)
+#define HOF_ARG_EXPR(TP, Arg)                                                  \
+  CAT(HOF_ARG_EXPR_, HOF_IS_VALUE_TYPE(HOF_ARG_NAME(Arg)))(TP, Arg)
+#define HOF_ARG_EXPR_0(TP, Arg) TYPE_SPEC(Arg)
+#define HOF_ARG_EXPR_1(TP, Arg) typename Impl<ALL_ARGS(TP)>::value_type
+
+#define HOF_FN_ARG_TYPES_0(TP)
+#define HOF_FN_ARG_TYPES_1(TP, A1) HOF_ARG_EXPR(TP, A1)
+#define HOF_FN_ARG_TYPES_2(TP, A1, A2)                                         \
+  HOF_ARG_EXPR(TP, A1), HOF_ARG_EXPR(TP, A2)
+#define HOF_FN_ARG_TYPES_3(TP, A1, A2, A3)                                     \
+  HOF_ARG_EXPR(TP, A1), HOF_ARG_EXPR(TP, A2), HOF_ARG_EXPR(TP, A3)
+#define HOF_FN_ARG_TYPES_4(TP, A1, A2, A3, A4)                                 \
+  HOF_ARG_EXPR(TP, A1), HOF_ARG_EXPR(TP, A2), HOF_ARG_EXPR(TP, A3),           \
+      HOF_ARG_EXPR(TP, A4)
+#define HOF_FN_ARG_TYPES_5(TP, A1, A2, A3, A4, A5)                               HOF_ARG_EXPR(TP, A1), HOF_ARG_EXPR(TP, A2), HOF_ARG_EXPR(TP, A3),                 HOF_ARG_EXPR(TP, A4), HOF_ARG_EXPR(TP, A5)
+#define HOF_FN_ARG_TYPES_6(TP, A1, A2, A3, A4, A5, A6)                           HOF_ARG_EXPR(TP, A1), HOF_ARG_EXPR(TP, A2), HOF_ARG_EXPR(TP, A3),                 HOF_ARG_EXPR(TP, A4), HOF_ARG_EXPR(TP, A5), HOF_ARG_EXPR(TP, A6)
+#define HOF_FN_ARG_TYPES_7(TP, A1, A2, A3, A4, A5, A6, A7)                       HOF_ARG_EXPR(TP, A1), HOF_ARG_EXPR(TP, A2), HOF_ARG_EXPR(TP, A3),                 HOF_ARG_EXPR(TP, A4), HOF_ARG_EXPR(TP, A5), HOF_ARG_EXPR(TP, A6),             HOF_ARG_EXPR(TP, A7)
+#define HOF_FN_ARG_TYPES(Fn, TP)                                                 HOF_FN_ARG_TYPES_I(TP, VA_COUNT(UNWRAP(HOF_FN_ARGS(Fn))),                                         UNWRAP(HOF_FN_ARGS(Fn)))
+#define HOF_FN_ARG_TYPES_I(TP, N, ...) HOF_FN_ARG_TYPES_II(TP, N, __VA_ARGS__)
+#define HOF_FN_ARG_TYPES_II(TP, N, ...) HOF_FN_ARG_TYPES_##N(TP, __VA_ARGS__)
+
+#define HOF_RET_IS_TEMPLATE(Ret) CAT(HOF_RET_IS_TEMPLATE_, IS_PAREN(Ret))(Ret)
+#define HOF_RET_IS_TEMPLATE_0(Ret) 0
+#define HOF_RET_IS_TEMPLATE_1(Ret) IS_TEMPLATE(FIRST(Ret))
+
+#define HOF_PROBE_RETURN_TYPE(TP, Ret)                                         \
+  CAT(HOF_PROBE_RETURN_TYPE_, HOF_RET_IS_TEMPLATE(Ret))(TP, Ret)
+#define HOF_PROBE_RETURN_TYPE_0(TP, Ret) TYPE_SPEC(Ret)
+#define HOF_PROBE_RETURN_TYPE_1(TP, Ret)                                       \
+  typename Impl<ALL_ARGS(TP)>::value_type
+
+#define HOF_EXPECTED_RETURN_TYPE(TP, Ret, Fn)                                  \
+  CAT(HOF_EXPECTED_RETURN_TYPE_, HOF_RET_IS_TEMPLATE(Ret))(TP, Ret, Fn)
+#define HOF_EXPECTED_RETURN_TYPE_0(TP, Ret, Fn) TYPE_SPEC(Ret)
+#define HOF_EXPECTED_RETURN_TYPE_1(TP, Ret, Fn)                                \
+  typename Impl<ALL_ARGS(TP)>::template Mapped<                               \
+      HOF_PROBE_RETURN_TYPE(TP, Ret)>
+
+#define HOF_WRAPPER_RETURN(TP, Ret, Fn, F)                                     \
+  CAT(HOF_WRAPPER_RETURN_, HOF_RET_IS_TEMPLATE(Ret))(TP, Ret, Fn, F)
+#define HOF_WRAPPER_RETURN_0(TP, Ret, Fn, F) TYPE_SPEC(Ret)
+#define HOF_WRAPPER_RETURN_1(TP, Ret, Fn, F)                                   \
+  typename Impl<ALL_ARGS(TP)>::template Mapped<                                \
+      std::remove_cvref_t<std::invoke_result_t<F &,                            \
+                                               HOF_FN_ARG_TYPES(Fn, TP)>>>     
+
+#define HOF_WRAPPER_REQUIRES(TP, Ret, Fn, F)                                   \
+  CAT(HOF_WRAPPER_REQUIRES_, HOF_RET_IS_TEMPLATE(Ret))(TP, Ret, Fn, F)
+#define HOF_WRAPPER_REQUIRES_0(TP, Ret, Fn, F)                                 \
+  std::same_as<std::remove_cvref_t<std::invoke_result_t<F &,                  \
+                                                        HOF_FN_ARG_TYPES(Fn, TP)>>, \
+               TYPE_SPEC(Ret)>
+#define HOF_WRAPPER_REQUIRES_1(TP, Ret, Fn, F) true
+
+#define HOF_FUNC_TEMPLATE_HEAD(TP)                                             \
+  HOF_FUNC_TEMPLATE_HEAD_I(VA_COUNT(UNWRAP(TP)), UNWRAP(TP))
+#define HOF_FUNC_TEMPLATE_HEAD_I(N, ...) HOF_FUNC_TEMPLATE_HEAD_II(N, __VA_ARGS__)
+#define HOF_FUNC_TEMPLATE_HEAD_II(N, ...) HOF_FUNC_TEMPLATE_HEAD_##N(__VA_ARGS__)
+#define HOF_FUNC_TEMPLATE_HEAD_1(A) template <Trait A, typename F>
+#define HOF_FUNC_TEMPLATE_HEAD_2(A, B) template <typename B, Trait<B> A, typename F>
+#define HOF_FUNC_TEMPLATE_HEAD_3(A, B, C)                                      \
+  template <typename B, typename C, Trait<B, C> A, typename F>
+
+#define HOF_ITEM_CONCEPT(TP, A, Name, Params)                                  \
+  {Impl<ALL_ARGS(TP)>::Name(                                                   \
+       TUPLE_TO_DECLVALS(Params),                                              \
+       ::gen_interface_detail::probe_callable<                                 \
+           HOF_PROBE_RETURN_TYPE(TP, HOF_FN_RET(HOF_ITEM_FN(A))),                           \
+           HOF_FN_ARG_TYPES(HOF_ITEM_FN(A), TP)>{})};
+
+#define HOF_FUNC_WRAPPER(TP, A, Name, Params)                                  \
+  HOF_FUNC_TEMPLATE_HEAD(TP)                                                   \
+    requires std::invocable<F &, HOF_FN_ARG_TYPES(HOF_ITEM_FN(A), TP)>                    \
+  auto Name(FUNC_PARAMS(Params), F &&fn)                                       \
+      -> HOF_WRAPPER_RETURN(TP, HOF_FN_RET(HOF_ITEM_FN(A)), HOF_ITEM_FN(A), F) {                         \
+    return Impl<ALL_ARGS(TP)>::Name(CALL_ARGS(Params), std::forward<F>(fn));   \
+  }
+
+// -----------------------------------------------------------------------------
+//  Extend strict static trait parsing for fn(...) higher-order items
+// -----------------------------------------------------------------------------
+
+#undef STRICT_STATIC_TRAIT_ITEM_3_KIND_1
+#undef STRICT_STATIC_TRAIT_FUNC_3_KIND_1
+
+#define STRICT_STATIC_TRAIT_ITEM_3_KIND_1(TP, A, Name, Params)                 \
+  CAT(STRICT_STATIC_TRAIT_ITEM_3_KIND_1_, IS_HOF_MARKER(FIRST(A)))(TP, A, Name, Params)
+#define STRICT_STATIC_TRAIT_ITEM_3_KIND_1_0(TP, A, Name, Params)               \
+  {Impl<ALL_ARGS(TP)>::Name(TUPLE_TO_DECLVALS(Params))}                        \
+      ->std::same_as<TYPE_SPEC(A)>;
+#define STRICT_STATIC_TRAIT_ITEM_3_KIND_1_1(TP, A, Name, Params)               \
+  HOF_ITEM_CONCEPT(TP, A, Name, Params)
+
+#define STRICT_STATIC_TRAIT_FUNC_3_KIND_1(TP, A, Name, Params)                 \
+  CAT(STRICT_STATIC_TRAIT_FUNC_3_KIND_1_, IS_HOF_MARKER(FIRST(A)))(TP, A, Name, Params)
+#define STRICT_STATIC_TRAIT_FUNC_3_KIND_1_0(TP, A, Name, Params)               \
+  FREE_FUNC4(TP, A, Name, Params)
+#define STRICT_STATIC_TRAIT_FUNC_3_KIND_1_1(TP, A, Name, Params)               \
+  HOF_FUNC_WRAPPER(TP, A, Name, Params)
+
+// Convenience wrapper: user writes hof(Name, (Self, ...ordinary...), fn(ReturnSpec, Args...))
+#define hof(Name, Params, Fn)                                                 \
+  ((hof, Fn), Name, Params)
+
+// Higher-order signature markers.
+// The inner fn helper is purely a DSL marker here; the generated wrapper
+// forwards a callable object and leaves the implementation to type-check it.
+#define fn(Return, ...) ((fn, Return, __VA_ARGS__))
+#define hof(Return, Name, Params) (hof, Return, Name, Params)
+
+#define HOF_IS_HOF(x) CHECK(CAT(HOF_IS_HOF_, x))
+#define HOF_IS_HOF_hof PROBE(~)
+
+#define SECOND_2(A, B) B
+#define SECOND_3(A, B, ...) B
+#define SECOND(P) SECOND_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
+#define SECOND_I(N, ...) SECOND_II(N, __VA_ARGS__)
+#define SECOND_II(N, ...) SECOND_##N(__VA_ARGS__)
+#define THIRD_3(A, B, C) C
+#define THIRD(P) THIRD_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
+#define THIRD_I(N, ...) THIRD_II(N, __VA_ARGS__)
+#define THIRD_II(N, ...) THIRD_##N(__VA_ARGS__)
+
+// -----------------------------------------------------------------------------
+// Minimal hof-aware static_trait override
+// -----------------------------------------------------------------------------
+
+#undef static_trait
+#define static_trait(Name, TP, MethodsTuple)                                   \
+  namespace Name {                                                             \
+  template <TYPENAME_LIST(TP)> struct Impl;                                    \
+  template <TYPENAME_LIST(TP)>                                                 \
+  concept Trait = requires {                                                   \
+    FOR_EACH_WITH(STATIC_TRAIT_REQ_ITEM, TP, UNWRAP_I MethodsTuple)            \
+  };                                                                           \
+  FOR_EACH_WITH(STATIC_TRAIT_FUNC_ITEM, TP, UNWRAP_I MethodsTuple)             \
+  }
+
+#define STATIC_TRAIT_REQ_ITEM(TP, Item) STATIC_TRAIT_REQ_ITEM_I(TP, UNWRAP(Item))
+#define STATIC_TRAIT_REQ_ITEM_I(TP, ...)                                       \
+  STATIC_TRAIT_REQ_ITEM_DISPATCH(TP, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
+#define STATIC_TRAIT_REQ_ITEM_DISPATCH(TP, N, ...)                             \
+  CAT(STATIC_TRAIT_REQ_ITEM_, N)(TP, __VA_ARGS__)
+
+#define STATIC_TRAIT_REQ_ITEM_2(TP, Kind, Name)                                \
+  STATIC_TRAIT_REQ_ITEM_2_DISPATCH(TP, Kind, Name)
+#define STATIC_TRAIT_REQ_ITEM_2_DISPATCH(TP, Kind, Name)                      \
+  CAT(STATIC_TRAIT_REQ_ITEM_2_KIND_, IS_TEMPLATE(Kind))(TP, Kind, Name)
+#define STATIC_TRAIT_REQ_ITEM_2_KIND_1(TP, Kind, Name)                        \
+  typename Impl<ALL_ARGS(TP)>::template Name<void>;
+#define STATIC_TRAIT_REQ_ITEM_2_KIND_0(TP, Kind, Name)                        \
+  typename Impl<ALL_ARGS(TP)>::Name;
+
+#define STATIC_TRAIT_REQ_ITEM_3(TP, Kind, Name, Params)                        \
+  STATIC_TRAIT_REQ_ITEM_3_DISPATCH(TP, Kind, Name, Params)
+#define STATIC_TRAIT_REQ_ITEM_3_DISPATCH(TP, Kind, Name, Params)              \
+  CAT(STATIC_TRAIT_REQ_ITEM_3_KIND_, IS_TEMPLATE(Kind))(TP, Kind, Name, Params)
+#define STATIC_TRAIT_REQ_ITEM_3_KIND_1(TP, Kind, Name, Params)                \
+  typename Impl<ALL_ARGS(TP)>::template Name<void>;
+#define STATIC_TRAIT_REQ_ITEM_3_KIND_0(TP, Kind, Name, Params)                \
+  /* Regular static function items are not used by the hof layer. */
+
+#define STATIC_TRAIT_REQ_ITEM_4(TP, Kind, Return, Name, Params)                \
+  STATIC_TRAIT_REQ_ITEM_4_DISPATCH(TP, Kind, Return, Name, Params)
+#define STATIC_TRAIT_REQ_ITEM_4_DISPATCH(TP, Kind, Return, Name, Params)      \
+  CAT(STATIC_TRAIT_REQ_ITEM_4_KIND_, HOF_IS_HOF(Kind))(TP, Kind, Return, Name, Params)
+#define STATIC_TRAIT_REQ_ITEM_4_KIND_1(TP, Kind, Return, Name, Params)        \
+  /* The actual callable validation happens through the generated wrapper. */
+#define STATIC_TRAIT_REQ_ITEM_4_KIND_0(TP, Kind, Return, Name, Params)        \
+  /* not hof */
+
+#define STATIC_TRAIT_FUNC_ITEM(TP, Item) STATIC_TRAIT_FUNC_ITEM_I(TP, UNWRAP(Item))
+#define STATIC_TRAIT_FUNC_ITEM_I(TP, ...)                                      \
+  STATIC_TRAIT_FUNC_ITEM_DISPATCH(TP, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
+#define STATIC_TRAIT_FUNC_ITEM_DISPATCH(TP, N, ...)                           \
+  CAT(STATIC_TRAIT_FUNC_ITEM_, N)(TP, __VA_ARGS__)
+
+#define STATIC_TRAIT_FUNC_ITEM_2(TP, Kind, Name)                               \
+  /* no wrapper */
+#define STATIC_TRAIT_FUNC_ITEM_3(TP, Kind, Name, Params)                       \
+  /* no wrapper */
+
+#define STATIC_TRAIT_FUNC_ITEM_4(TP, Kind, Return, Name, Params)               \
+  STATIC_TRAIT_FUNC_ITEM_4_DISPATCH(TP, Kind, Return, Name, Params)
+#define STATIC_TRAIT_FUNC_ITEM_4_DISPATCH(TP, Kind, Return, Name, Params)     \
+  CAT(STATIC_TRAIT_FUNC_ITEM_4_KIND_, HOF_IS_HOF(Kind))(TP, Kind, Return, Name, Params)
+#define STATIC_TRAIT_FUNC_ITEM_4_KIND_1(TP, Kind, Return, Name, Params)       \
+  STATIC_HOF_FUNC(TP, Return, Name, Params)
+#define STATIC_TRAIT_FUNC_ITEM_4_KIND_0(TP, Kind, Return, Name, Params)       \
+  /* not hof */
+
+#define STATIC_HOF_PARAMS_COUNT(...) VA_COUNT(__VA_ARGS__)
+
+#define STATIC_HOF_FN(P) STATIC_HOF_FN_I(UNWRAP(P))
+#define STATIC_HOF_FN_I(...) STATIC_HOF_FN_##VA_COUNT(__VA_ARGS__)(__VA_ARGS__)
+
+// Direct helpers for parameter tuples of the form:
+//   (Self, fn(...))
+//   (Self, Self, fn(...))
+#define STATIC_HOF_FUNC(TP, Return, Name, Params)                              \
+  STATIC_HOF_FUNC_DISPATCH(TP, Return, Name, Params)
+#define STATIC_HOF_FUNC_DISPATCH(TP, Return, Name, Params)                     \
+  CAT(STATIC_HOF_FUNC_, VA_COUNT(UNWRAP(Params)))(TP, Return, Name, Params)
+
+#define STATIC_HOF_FUNC_2(TP, Return, Name, Params)                            \
+  template <TYPENAME_LIST(TP), typename F>                                     \
+  decltype(auto) Name(TYPE_SPEC(FIRST(Params)) a1, F &&fn) {                   \
+    return Impl<ALL_ARGS(TP)>::Name(a1, std::forward<F>(fn));                  \
+  }
+
+#define STATIC_HOF_FUNC_3(TP, Return, Name, Params)                            \
+  template <TYPENAME_LIST(TP), typename F>                                     \
+  decltype(auto) Name(TYPE_SPEC(FIRST(Params)) a1,                             \
+                      TYPE_SPEC(SECOND(Params)) a2, F &&fn) {                  \
+    return Impl<ALL_ARGS(TP)>::Name(a1, a2, std::forward<F>(fn));              \
+  }
+
+#define STATIC_HOF_FUNC_4(TP, Return, Name, Params)                            \
+  /* not needed for current examples */
+
 
 #endif // TRAIT_HOF_AFTER_SELF_NEW_HPP
