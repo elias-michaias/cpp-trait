@@ -11,10 +11,7 @@ Generate concepts, static dispatch forwarding functions, mixins, and opt-in type
 
 ## Goals
 
-This library is designed to enhance **"C-style C++"** with more robust polymorphism capabilities that perform well, read well, and play well with C's memory paradigm.
-That being said, Rust and Haskell are key inspirations for this library's approach to principled ad-hoc polymorphism.
-If the library has done its job, writing trait-centric APIs should feel like you have the compositional power of Rust with the control of C.
-As such, the following goals are north stars for this library:
+This library is designed to enhance **"C-style C++"** - in fact, the tests for this library pass with `clang` (not `clang++`; it doesn't need any C++ runtime functionality). The goal is to enhance C-style C++ with more robust polymorphism capabilities that perform well, read well, and play well with C's memory paradigm. That being said, Rust and Haskell are key inspirations for this library's approach to principled ad-hoc polymorphism. If the library has done its job, writing trait-centric APIs should feel like you have the compositional power of Rust with the control of C. As such, the following goals are north stars for this library:
 
 - Readable APIs
 - Single header
@@ -28,9 +25,7 @@ As such, the following goals are north stars for this library:
 
 ## Non-goals
 
-This library is not designed for traditional C++ OOP, but is rather an alternative to it.
-Additionally, this library has no intention of replicating Rust in C++ for Rust's sake.
-The following are not supported, and will never be supported:
+This library is not designed for traditional C++ OOP, but is rather an alternative to it. Additionally, this library has no intention of replicating Rust in C++ for Rust's sake. The following are not supported, and will never be supported:
 
 - Automatic memory management
 - Any implementation of Rust/C++ move semantics
