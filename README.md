@@ -18,7 +18,7 @@ As such, the following goals are north stars for this library:
 
 - Readable APIs
 - Single header
-- Minimal reliance on C++ `std`
+- No reliance on C++ runtime
 - No heap allocation
 - Respect pointer semantics
 - Static functions first, instance functions opt-in via `Trait::Mixin`
