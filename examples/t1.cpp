@@ -134,8 +134,6 @@ int main() {
                                       
   std::array<Into::Dyn<int>, 2> list = {id, f3};
 
-  Test::test(2, 4);
-
   f3 = f;
 
   c.scale(2);
