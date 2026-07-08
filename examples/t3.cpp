@@ -10,7 +10,7 @@
 //   4. Dyn dynamic dispatch for both 1-param and 2-param traits
 //   5. Mixin method generation
 
-#include <iostream>
+#include <cstdio>
 #include <type_traits>
 #include "../trait.hpp"
 
@@ -152,27 +152,27 @@ int main() {
   // Strict Transform via Dyn (Self* param → pass &td)
   Tile tile{10};
   Transform::Dyn td = tile;
-  std::cout << Transform::apply(&td, 5) << "\n";  // 15
+  printf("%d\n", Transform::apply(&td, 5));  // 15
 
   // Duck Transform: WideTile (long param) still works at runtime
   WideTile wt{10};
   DuckTransform::apply(&wt, 5);
-  std::cout << wt.val << "\n";  // 15
+  printf("%d\n", wt.val);  // 15
 
   // Into: duck accepts const-ref impl
   Celsius c{100.f};
   Kelvin  k{373.15f};
-  std::cout << Into::into<float>(c) << "\n";      // 100
-  std::cout << Into::into<float>(k) << "\n";      // 373.15
+  printf("%g\n", Into::into<float>(c));      // 100
+  printf("%g\n", Into::into<float>(k));      // 373.15
 
   // Into::Dyn – heterogeneous list of convertibles
   Into::Dyn<float> dyn = c;
-  std::cout << Into::into<float>(dyn) << "\n";    // 100
+  printf("%g\n", Into::into<float>(dyn));    // 100
   dyn = k;
-  std::cout << Into::into<float>(dyn) << "\n";    // 373.15
+  printf("%g\n", Into::into<float>(dyn));    // 373.15
 
   // Mixin
   MixinTile mt{};
   mt.val = 0;
-  std::cout << mt.apply(7) << "\n";  // 7
+  printf("%d\n", mt.apply(7));  // 7
 }

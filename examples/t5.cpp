@@ -30,9 +30,7 @@
 //   6. Dyn's own Mixin methods (.area(), .into()) on type-erased values
 //   7. Mixin is opt-in: trait satisfaction lives in Impl, not Mixin
 
-#include <array>
-#include <iostream>
-#include <string>
+#include <cstdio>
 #include <type_traits>
 #include "../trait.hpp"
 
@@ -46,9 +44,9 @@ trait(Shape, (Self), (
   (void, scale, (Self *, int))
 ))
 
-// 1-param strict trait: value-returning only
+// 1-param strict trait: side-effecting print (no std::string return)
 trait(Printable, (Self), (
-  (std::string, display, (Self))
+  (void, display, (Self))
 ))
 
 // 2-param duck-typed trait: conversion
@@ -121,15 +119,15 @@ static_assert(Into::Trait<Into::Dyn<float>, float>); // Dyn satisfies too
 // ─────────────────────────────────────────────────────────────────────────────
 struct Widget : Shape::Mixin, Printable::Mixin {
   int side;
-  std::string label;
+  int id;
 };
 template <> struct Shape::Impl<Widget> {
   static int  area (Widget w)          { return w.side * w.side; }
   static void scale(Widget *w, int f)  { w->side *= f; }
 };
 template <> struct Printable::Impl<Widget> {
-  static std::string display(Widget w) {
-    return "[Widget " + w.label + " side=" + std::to_string(w.side) + "]";
+  static void display(Widget w) {
+    printf("[Widget#%d side=%d]", w.id, w.side);
   }
 };
 
@@ -197,20 +195,23 @@ static_assert(Shape::Trait<Triangle>);          // ✓ satisfies without Mixin
 // (Tested at runtime below)
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 8.  Array of a Shape::Trait type itself satisfies Shape
-//     (same pattern as t1.cpp, but now tested with dot notation via Mixin)
+// 8.  Fixed-size array of a Shape::Trait type also satisfies Shape
+//     (using a plain C-style wrapper — no std::array — to avoid C++ runtime)
 // ─────────────────────────────────────────────────────────────────────────────
-template <Shape::Trait T, std::size_t N>
-struct Shape::Impl<std::array<T, N>> {
-  static int  area (std::array<T, N> a) {
-    int t = 0; for (auto &e : a) t += Shape::area(e); return t;
+template <Shape::Trait T, int N>
+struct ShapeArr { T data[N]; };
+
+template <Shape::Trait T, int N>
+struct Shape::Impl<ShapeArr<T, N>> {
+  static int  area (ShapeArr<T, N> a) {
+    int t = 0; for (int i = 0; i < N; ++i) t += Shape::area(a.data[i]); return t;
   }
-  static void scale(std::array<T, N> *a, int f) {
-    for (auto &e : *a) Shape::scale(&e, f);
+  static void scale(ShapeArr<T, N> *a, int f) {
+    for (int i = 0; i < N; ++i) Shape::scale(&a->data[i], f);
   }
 };
 
-static_assert(Shape::Trait<std::array<Circle, 3>>);
+static_assert(Shape::Trait<ShapeArr<Circle, 3>>);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // main – runtime verification of all scenarios
@@ -218,63 +219,63 @@ static_assert(Shape::Trait<std::array<Circle, 3>>);
 int main() {
   // ── 1. Single-trait Mixin: dot notation for value and pointer methods ────
   Circle c{.r = 5};
-  std::cout << c.area() << "\n";  // 25  (value method)
+  printf("%d\n", c.area());  // 25  (value method)
   c.scale(2);
-  std::cout << c.area() << "\n";  // 100 (pointer method mutated c)
+  printf("%d\n", c.area());  // 100 (pointer method mutated c)
 
   Rect r{.x = 3, .y = 4};
-  std::cout << r.area() << "\n";  // 12
+  printf("%d\n", r.area());  // 12
   r.scale(3);
-  std::cout << r.area() << "\n";  // 108 (x=9, y=12)
+  printf("%d\n", r.area());  // 108 (x=9, y=12)
 
   // Free-function style still works alongside Mixin
-  std::cout << Shape::area(c) << "\n";  // 100
+  printf("%d\n", Shape::area(c));  // 100
 
   // ── 2. Multi-param Mixin: typed .into() ─────────────────────────────────
   Celsius cel{.v = 37.5f};
-  std::cout << cel.into() << "\n";  // 37.5  (float)
+  printf("%g\n", cel.into());  // 37.5 (float)
 
   Score sc{.raw = 9.8};
-  std::cout << sc.into() << "\n";   // 9     (int, truncated)
+  printf("%d\n", sc.into());   // 9    (int, truncated)
 
   // ── 3. Multiple Mixin inheritance ───────────────────────────────────────
-  Widget w{.side = 4, .label = "btn"};
-  std::cout << w.area() << "\n";      // 16
-  std::cout << w.display() << "\n";   // [Widget btn side=4]
+  Widget w{.side = 4, .id = 1};
+  printf("%d\n", w.area());    // 16
+  w.display(); printf("\n");   // [Widget#1 side=4]
   w.scale(2);
-  std::cout << w.area() << "\n";      // 64
-  std::cout << w.display() << "\n";   // [Widget btn side=8]
+  printf("%d\n", w.area());    // 64
+  w.display(); printf("\n");   // [Widget#1 side=8]
 
   // ── 4. Mixin + Dyn coexistence ───────────────────────────────────────────
   Shape::Dyn dyn = c;
-  std::cout << Shape::area(dyn) << "\n";  // 100 (free function)
-  std::cout << dyn.area() << "\n";         // 100 (Dyn's own Mixin method)
+  printf("%d\n", Shape::area(dyn));  // 100 (free function)
+  printf("%d\n", dyn.area());        // 100 (Dyn's own Mixin method)
   dyn.scale(3);
-  std::cout << dyn.area() << "\n";         // 900
+  printf("%d\n", dyn.area());        // 900
 
   Into::Dyn<float> idyn = cel;
-  std::cout << Into::into<float>(idyn) << "\n"; // 37.5 (free function)
-  std::cout << idyn.into() << "\n";              // 37.5 (Dyn's own Mixin method)
+  printf("%g\n", Into::into<float>(idyn)); // 37.5 (free function)
+  printf("%g\n", idyn.into());             // 37.5 (Dyn's own Mixin method)
 
   // ── 5. Template struct with Mixin ────────────────────────────────────────
   Scaled<Rect> sr{.inner = {.x = 2, .y = 3}, .factor = 5};
-  std::cout << sr.area() << "\n";  // (2*3) * 5 = 30
+  printf("%d\n", sr.area());  // (2*3) * 5 = 30
   sr.scale(2);
   // scale modifies inner Rect (x=4, y=6); factor unchanged
-  std::cout << sr.area() << "\n";  // (4*6) * 5 = 120
+  printf("%d\n", sr.area());  // (4*6) * 5 = 120
 
   // ── 6. Trait without Mixin still works everywhere ────────────────────────
   Triangle tri{6, 4};
-  std::cout << Shape::area(tri) << "\n";  // 12
+  printf("%d\n", Shape::area(tri));  // 12
   Shape::scale(&tri, 2);
-  std::cout << Shape::area(tri) << "\n";  // 48
+  printf("%d\n", Shape::area(tri));  // 48
 
   // Dyn over a non-Mixin type
   Shape::Dyn tdyn = tri;
-  std::cout << tdyn.area() << "\n";  // 48
+  printf("%d\n", tdyn.area());  // 48
 
   // ── 7. Array Impl via free functions and Dyn ─────────────────────────────
   Circle c1{.r = 2}, c2{.r = 3}, c3{.r = 4};
-  std::array<Circle, 3> arr = {c1, c2, c3};
-  std::cout << Shape::area(arr) << "\n";  // 4+9+16 = 29
+  ShapeArr<Circle, 3> arr{{c1, c2, c3}};
+  printf("%d\n", Shape::area(arr));  // 4+9+16 = 29
 }

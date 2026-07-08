@@ -30,9 +30,7 @@
 //   (immediate context), and requires-expressions work correctly.
 
 #include <functional>
-#include <iostream>
-#include <optional>
-#include <string>
+#include <cstdio>
 #include <type_traits>
 #include "../trait.hpp"
 
@@ -116,7 +114,7 @@ struct NotAFunctor {};
 template <> struct Functor::Impl<NotAFunctor> { /* no value_type, no Mapped */ };
 
 static_assert( Functor::Trait<Box<int>>);         // ✓
-static_assert( Functor::Trait<Box<std::string>>); // ✓
+static_assert( Functor::Trait<Box<double>>);      // ✓
 static_assert( Functor::Trait<Maybe<int>>);        // ✓
 static_assert(!Functor::Trait<NotAFunctor>);       // ✗ missing value_type + Mapped
 
@@ -125,8 +123,8 @@ static_assert(std::same_as<
   decltype(Functor::map(Box<int>{1}, [](int x) { return x + 1; })),
   Box<int>>);
 static_assert(std::same_as<
-  decltype(Functor::map(Box<int>{1}, [](int x) { return std::to_string(x); })),
-  Box<std::string>>);
+  decltype(Functor::map(Box<int>{1}, [](int x) { return (double)x; })),
+  Box<double>>);
 static_assert(std::same_as<
   decltype(Functor::map(Maybe<int>{true, 3}, [](int x) { return x * 2; })),
   Maybe<int>>);
@@ -134,7 +132,8 @@ static_assert(std::same_as<
 // ── HOF rejection for map (via Impl::map inside a concept – proper SFINAE) ───
 // A concept wrapper places F in a template parameter context so substitution
 // failure in invoke_result_t<F&, int> evaluates to false rather than hard error.
-struct TakesString { std::size_t operator()(std::string s) const { return s.size(); } };
+// Use a callable that takes const char* — int does NOT implicitly convert to it.
+struct TakesPtr { int operator()(const char* s) const { return s[0]; } };
 
 template <typename F>
 concept BoxIntMappable = requires(Box<int> b, F f) {
@@ -142,7 +141,7 @@ concept BoxIntMappable = requires(Box<int> b, F f) {
 };
 
 static_assert( BoxIntMappable<decltype([](int x) { return x + 1; })>); // ✓ int → int
-static_assert(!BoxIntMappable<TakesString>);                            // ✗ expects string
+static_assert(!BoxIntMappable<TakesPtr>);                               // ✗ expects const char*, int doesn't convert
 static_assert(!BoxIntMappable<int>);                                    // ✗ not callable
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -180,7 +179,7 @@ static_assert(std::same_as<
   int>);
 
 // ── HOF rejection for fold (via concept wrapper – requires clause in signature) ─
-struct WrongFoldFn { int operator()(int, std::string) const { return 0; } };
+struct WrongFoldFn { int operator()(int, const char*) const { return 0; } };
 struct UnaryFoldFn { int operator()(int x) const { return x; } };
 
 template <typename F>
@@ -236,8 +235,8 @@ static_assert(std::same_as<
   Box<bool>>);
 
 // ── HOF rejection for zip_with (via concept wrapper) ─────────────────────────
-struct UnaryZipFn { int operator()(int x) const { return x; } };
-struct StringZipFn { std::string operator()(std::string a, std::string b) const { return a + b; } };
+struct UnaryZipFn  { int operator()(int x) const { return x; } };
+struct PtrZipFn    { int operator()(const char* a, const char* b) const { return 0; } };
 
 template <typename F>
 concept BoxIntZippable = requires(Box<int> a, Box<int> b, F f) {
@@ -246,8 +245,8 @@ concept BoxIntZippable = requires(Box<int> a, Box<int> b, F f) {
 
 // Wrong arity (1 arg instead of 2) → rejected.
 static_assert(!BoxIntZippable<UnaryZipFn>);    // ✗ unary
-// Wrong arg type (string instead of int) → rejected.
-static_assert(!BoxIntZippable<StringZipFn>);   // ✗ takes strings
+// Wrong arg type (const char* instead of int) → rejected.
+static_assert(!BoxIntZippable<PtrZipFn>);      // ✗ takes const char*
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 5.  static_ducktyped_trait: duck-typing for static traits
@@ -284,32 +283,33 @@ int main() {
   // Functor::map over Box
   Box<int> b{5};
   auto b2 = Functor::map(b, [](int x) { return x * 2; });
-  std::cout << b2.value << "\n";  // 10
+  printf("%d\n", b2.value);  // 10
 
-  auto b3 = Functor::map(b, [](int x) { return std::to_string(x); });
-  std::cout << b3.value << "\n";  // 5
+  // map that changes the element type: int → double
+  auto b3 = Functor::map(b, [](int x) { return (double)x; });
+  printf("%g\n", b3.value);  // 5
 
   // Functor::map over Maybe (present)
   Maybe<int> m{true, 7};
   auto m2 = Functor::map(m, [](int x) { return x + 1; });
-  std::cout << m2.has << " " << m2.value << "\n";  // 1 8
+  printf("%d %d\n", (int)m2.has, m2.value);  // 1 8
 
   // Functor::map over Maybe (absent – maps to empty)
   Maybe<int> empty{false, 0};
   auto m3 = Functor::map(empty, [](int x) { return x + 1; });
-  std::cout << m3.has << "\n";  // 0
+  printf("%d\n", (int)m3.has);  // 0
 
   // Foldable::fold
   Box<int> bf{10};
   int sum = Foldable::fold(bf, 100, [](int acc, int v) { return acc + v; });
-  std::cout << sum << "\n";  // 110
+  printf("%d\n", sum);  // 110
 
   // Zip::zip_with
   auto z = Zip::zip_with(Box<int>{3}, Box<int>{4}, [](int a, int b) { return a * b; });
-  std::cout << z.value << "\n";  // 12
+  printf("%d\n", z.value);  // 12
 
   // Duck static: const-ref impl still works at runtime
   ConstStretcher cs{3};
-  std::cout << Remap::remap(cs, 7) << "\n";  // 21
+  printf("%d\n", Remap::remap(cs, 7));  // 21
 }
 

@@ -1,7 +1,6 @@
 // clang-format off
 
-#include <array>
-#include <iostream>
+#include <cstdio>
 #include "../trait.hpp"
 
 // 1-param: Shape
@@ -108,36 +107,36 @@ static_assert(Into::Trait<Into::Dyn<int>, int>);
 int main() {
   // 1-param: Shape
   Circle c{.r = 5};
-  std::cout << Shape::area(c) << "\n"; // 25
+  printf("%d\n", Shape::area(c)); // 25
   Shape::scale(&c, 2);
-  std::cout << Shape::area(c) << "\n"; // 100
+  printf("%d\n", Shape::area(c)); // 100
 
   Shape::Dyn sd = c;
-  std::cout << Shape::area(sd) << "\n"; // 100
+  printf("%d\n", Shape::area(sd)); // 100
   Shape::scale(&sd, 3);
-  std::cout << Shape::area(sd) << "\n"; // 900
+  printf("%d\n", Shape::area(sd)); // 900
 
   Rect r{3, 4};
-  std::array<Shape::Dyn, 2> arr = {c, r};
-  std::cout << Shape::area(arr[0]) << " " << Shape::area(arr[1]) << "\n"; // 900 12
+  Shape::Dyn arr[2] = {c, r};
+  printf("%d %d\n", Shape::area(arr[0]), Shape::area(arr[1])); // 900 12
 
   // 2-param: Into
   MyFloat f{3.7f};
   float f2 = 4.9;
   Into::Dyn<int> id(f);
   Into::Dyn<int> f3 = f2;
-  std::cout << Into::into<int>(id) << "\n"; // 3
-  std::cout << Into::into<int>(f2) << "\n"; // 3
+  printf("%d\n", Into::into<int>(id)); // 3
+  printf("%d\n", Into::into<int>(f2)); // 3
   // also via Dyn directly:
-  std::cout << Into::into<int>(f) << "\n"; // 3
-  std::cout << Into::into<int>(f3) << "\n"; // 3
-                                      
-  std::array<Into::Dyn<int>, 2> list = {id, f3};
+  printf("%d\n", Into::into<int>(f));  // 3
+  printf("%d\n", Into::into<int>(f3)); // 3
+
+  Into::Dyn<int> list[2] = {id, f3};
 
   f3 = f;
 
   c.scale(2);
-  std::cout << c.area() << std::endl;
-  std::cout << f3.into() << std::endl;
+  printf("%d\n", c.area());
+  printf("%d\n", f3.into());
 
 }

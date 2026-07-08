@@ -1,8 +1,6 @@
 #include "../trait.hpp"
 #include <cassert>
-#include <iostream>
-#include <optional>
-#include <string>
+#include <cstdio>
 #include <type_traits>
 #include <utility>
 
@@ -38,7 +36,8 @@ trait(Shape, (Self), ((int, area, (Self)), (void, scale, (Self *, int))))
 };
 
 template <typename T> struct Maybe {
-  std::optional<T> inner;
+  bool has;
+  T inner;
 };
 
 struct Circle {
@@ -78,7 +77,7 @@ template <> struct Into::Impl<float, int> {
 
 // Helper operations
 static int add1(int x) { return x + 1; }
-static std::string to_string2(int x) { return std::to_string(x); }
+static double to_double(int x) { return (double)x * 1.5; }
 static bool is_less(int a, int b) { return a < b; }
 
 // Higher-order trait impls
@@ -134,9 +133,8 @@ static_assert(Test::Trait<int>);
 static_assert(
     std::same_as<decltype(Functor::map(Box<int>{41}, add1)), Box<int>>);
 static_assert(
-    std::same_as<decltype(Functor::map(
-                     Box<int>{41}, [](auto x) { return std::to_string(x); })),
-                 Box<std::string>>);
+    std::same_as<decltype(Functor::map(Box<int>{41}, to_double)),
+                 Box<double>>);
 static_assert(
     std::same_as<decltype(Zip::zip_with(Box<int>{2}, Box<int>{3},
                                         [](auto a, auto b) { return a + b; })),
@@ -148,29 +146,29 @@ static_assert(std::same_as<decltype(Test::test(2, true)), int>);
 
 int main() {
   Circle c{.r = 5};
-  std::cout << Shape::area(c) << "\n";
+  printf("%d\n", Shape::area(c));
   Shape::scale(&c, 2);
-  std::cout << Shape::area(c) << "\n";
+  printf("%d\n", Shape::area(c));
 
   Rect r{3, 4};
-  std::cout << Shape::area(r) << "\n";
+  printf("%d\n", Shape::area(r));
 
   MyFloat f{3.7f};
-  std::cout << Into::into<int>(f) << "\n";
-  std::cout << Into::into<int>(4.9f) << "\n";
+  printf("%d\n", Into::into<int>(f));
+  printf("%d\n", Into::into<int>(4.9f));
 
   Box<int> b{41};
   auto b2 = Functor::map(b, add1);
-  std::cout << b2.inner << "\n";
+  printf("%d\n", b2.inner);
 
-  auto b3 = Functor::map(b, [](auto x) { return std::to_string(x); });
-  std::cout << b3.inner << "\n";
+  // map that changes the element type: int → double
+  auto b3 = Functor::map(b, to_double);
+  printf("%g\n", b3.inner);
 
   auto z = Zip::zip_with(Box<int>{2}, Box<int>{3},
                          [](auto a, auto b) { return a + b; });
-  std::cout << z.inner << "\n";
+  printf("%d\n", z.inner);
 
-  std::cout << std::boolalpha
-            << Compare::less_than(Box<int>{2}, Box<int>{3}, is_less) << "\n";
-  std::cout << Test::test(2, true) << "\n";
+  printf("%s\n", Compare::less_than(Box<int>{2}, Box<int>{3}, is_less) ? "true" : "false");
+  printf("%d\n", Test::test(2, true));
 }
