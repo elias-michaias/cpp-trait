@@ -1,21 +1,12 @@
 // clang-format off
 // t8.cpp -- Fluent APIs: builders, functional pipelines, and cross-type chaining.
 //
-// Demonstrates three layers of fluent API design using the trait system:
+// Struct definitions contain ONLY data.  All methods come from the Impls<T>
+// layer chain:  .showln() from Show, .map() from Functor, .zip_with() from Zip.
 //
-//   1. Builder pattern (Self* returns):
-//        cfg.set_host("x")->set_port(8080)->set_retries(3)
-//
-//   2. Functional pipelines (static_trait Functor/Zip + Chain wrapper):
-//        Chain<Box<int>>{42}
-//          .map([](int x) { return x * 2.0; })      // int -> double
-//          .map([](double x) { return (int)x; })     // double -> int
-//          .showln()
-//
-//   3. Cross-type chaining: Config --build--> Server --start/stop--> lifecycle
-//
-// All three patterns compose freely: you can mix builder chains, functional
-// pipelines, and cross-type transitions in the same program.
+// static_trait + hof() generates free functions but no layers.
+// We bridge the gap with manual layer specializations that forward to the
+// static trait free functions, giving us method syntax without struct methods.
 
 #include "../trait.hpp"
 
@@ -28,26 +19,20 @@
 //  Traits
 // ===========================================================================
 
-// -- Show: chainable printing (trait = vtable + dyn + mixin) ----------------
 trait(Show, (Self), (
   (Self *, showln, (Self *)),
 ))
 
-// -- Functor: type-safe map (static_trait = compile-time only) ---------------
-// Associated types: value_type, Mapped<U>.
-// Higher-order function: map container + callable -> new container of new type.
 static_trait(Functor, (Self),
              ((type, value_type), (template, Mapped, (U)),
               hof((template, Mapped, (U)), map,
                   (Self, fn(U, value_type))), ))
 
-// -- Zip: combine two containers with a binary function ---------------------
 static_trait(Zip, (Self),
              ((type, value_type), (template, Mapped, (U)),
               hof((template, Mapped, (U)), zip_with,
                   (Self, Self, fn(U, value_type, value_type))), ))
 
-// -- Builder traits (Self* returns for fluent setters) ----------------------
 trait(Builder, (Self), (
   (Self *, set_host,    (Self *, const char *)),
   (Self *, set_port,    (Self *, int)),
@@ -72,47 +57,23 @@ trait(ConfigBuild, (Self), (
 ))
 
 // ===========================================================================
-//  Container Types
-// ===========================================================================
-
-// Box<T>: simple value wrapper -- implements Functor, Zip, Show.
-template <typename T> struct Box { T inner; };
-
-// Maybe<T>: optional wrapper -- implements Functor with short-circuit.
-template <typename T> struct Maybe { bool has; T inner; };
-
-// ===========================================================================
-//  Chain<T>: fluent wrapper over any Functor container.
-//
-//  .map(f)        -- delegates to Functor::map, returns Chain<Box<U>>
-//  .zip_with(o,f) -- delegates to Zip::zip_with, returns Chain<Box<U>>
-//  .showln()      -- delegates to Show::showln, returns *this for chaining
-//
-//  Each .map() can CHANGE the element type, producing a different Chain<T>.
-//  This is the key: the type flows through the pipeline.
+//  Pure data structs -- no methods, only members + constructors.
+//  All behavior comes from Impls<T> layer chain.
 // ===========================================================================
 
 template <typename T>
-struct Chain {
-  T value;
+struct Box : Impls<Box<T>> {
+  T inner;
+  Box() = default;
+  explicit Box(T v) : inner(std::move(v)) {}
+};
 
-  template <typename F>
-  auto map(F &&f) {
-    auto result = Functor::map(std::move(value), std::forward<F>(f));
-    return Chain<std::remove_cvref_t<decltype(result)>>{std::move(result)};
-  }
-
-  template <typename F>
-  auto zip_with(Chain<T> other, F &&f) {
-    auto result = Zip::zip_with(std::move(value), std::move(other.value),
-                                std::forward<F>(f));
-    return Chain<std::remove_cvref_t<decltype(result)>>{std::move(result)};
-  }
-
-  Chain &showln() {
-    ::Show::showln(&value);
-    return *this;
-  }
+template <typename T>
+struct Maybe : Impls<Maybe<T>> {
+  bool has = false;
+  T inner{};
+  Maybe() = default;
+  Maybe(bool h, T v) : has(h), inner(std::move(v)) {}
 };
 
 // ===========================================================================
@@ -164,35 +125,35 @@ struct Zip::Impl<Box<T>> {
 };
 
 // ===========================================================================
-//  Show Implementations (Self* returns for chainable .showln())
+//  Show Implementations
 // ===========================================================================
 
 template <> struct Show::Impl<Box<int>> {
   static Box<int> *showln(Box<int> *self) {
-    printf("Box<int>{%d}\n", self->inner);
+    printf("  Box<int>{%d}\n", self->inner);
     return self;
   }
 };
 
 template <> struct Show::Impl<Box<double>> {
   static Box<double> *showln(Box<double> *self) {
-    printf("Box<double>{%.2f}\n", self->inner);
+    printf("  Box<double>{%.2f}\n", self->inner);
     return self;
   }
 };
 
 template <> struct Show::Impl<Maybe<int>> {
   static Maybe<int> *showln(Maybe<int> *self) {
-    if (self->has) printf("Maybe<int>{Just(%d)}\n", self->inner);
-    else           printf("Maybe<int>{Nothing}\n");
+    if (self->has) printf("  Maybe<int>{Just(%d)}\n", self->inner);
+    else           printf("  Maybe<int>{Nothing}\n");
     return self;
   }
 };
 
 template <> struct Show::Impl<Maybe<double>> {
   static Maybe<double> *showln(Maybe<double> *self) {
-    if (self->has) printf("Maybe<double>{Just(%.2f)}\n", self->inner);
-    else           printf("Maybe<double>{Nothing}\n");
+    if (self->has) printf("  Maybe<double>{Just(%.2f)}\n", self->inner);
+    else           printf("  Maybe<double>{Nothing}\n");
     return self;
   }
 };
@@ -320,94 +281,83 @@ int main() {
 
   // -- 4. Functional pipeline: cross-type map chain -------------------------
   //
-  // The key demonstration: each .map() CHANGES the element type.
+  // Each .map() CHANGES the element type.
   //   Box<int>  -->  Box<double>  -->  Box<int>
-  // The type flows through the pipeline, and the compiler tracks it.
+  //
+  // .map() comes from the Functor layer (layer 200), which forwards to the
+  // static trait free function Functor::map.
+  // .showln() comes from the Show trait layer (auto-registered).
+  // Use named variables since layer methods use this auto & (lvalue only).
 
   printf("\n--- 4. Cross-Type Functional Pipeline ---\n");
 
   printf("  int -> double -> int:\n");
-  Chain<Box<int>>{42}
-    .map([](int x) { return x * 2.0; })               // Box<int>    -> Box<double>
-    .showln()                                           // Box<double>{84.00}
-    .map([](double x) { return (int)(x + 0.5); })     // Box<double> -> Box<int>
-    .showln();                                          // Box<int>{84}
+  auto s4a = Box<int>{42}.map([](int x) { return x * 2.0; });
+  s4a.showln();
+  auto s4b = s4a.map([](double x) { return (int)(x + 0.5); });
+  s4b.showln();
 
   printf("  int -> double -> int -> double:\n");
-  Chain<Box<int>>{7}
-    .map([](int x) { return x * 3.14; })               // Box<int>    -> Box<double>
-    .showln()                                           // Box<double>{21.98}
-    .map([](double x) { return (int)x; })              // Box<double> -> Box<int>
-    .showln()                                           // Box<int>{21}
-    .map([](int x) { return x * 0.5; })               // Box<int>    -> Box<double>
-    .showln();                                          // Box<double>{10.50}
+  auto s4c = Box<int>{7}.map([](int x) { return x * 3.14; });
+  s4c.showln();
+  auto s4d = s4c.map([](double x) { return (int)x; });
+  s4d.showln();
+  auto s4e = s4d.map([](int x) { return x * 0.5; });
+  s4e.showln();
 
-  // -- 5. Free function alongside Chain (mixed API) -------------------------
-  //
-  // Functor::map works as a free function.
-  // Chain::map wraps it for fluent syntax.
-  // Both call the same underlying Impl.
+  // -- 5. Free function alongside method syntax -----------------------------
 
-  printf("\n--- 5. Free Function vs. Chain ---\n");
+  printf("\n--- 5. Free Function vs. Method Syntax ---\n");
 
   auto r1 = Functor::map(Box<int>{10}, [](int x) { return x * x; });
   printf("  free:  Box<int>{%d}\n", r1.inner);
 
-  printf("  chain: ");
-  Chain<Box<int>>{10}
-    .map([](int x) { return x * x; })
-    .showln();
+  auto r2 = Box<int>{10}.map([](int x) { return x * x; });
+  printf("  method: ");
+  r2.showln();
 
   // -- 6. Maybe functor: short-circuit on Nothing ---------------------------
-  //
-  // Maybe<T> implements Functor.  map() applies the function only when
-  // has == true; Nothing passes through unchanged (fn is never called).
 
   printf("\n--- 6. Maybe Functor (Short-Circuit) ---\n");
 
-  printf("  Just(42) -> *2:\n  ");
-  Chain<Maybe<int>>{true, 42}
-    .map([](int x) { return x * 2; })
-    .showln();                                          // Maybe<int>{Just(84)}
+  auto m1 = Maybe<int>{true, 42}.map([](int x) { return x * 2; });
+  printf("  Just(42) * 2: ");
+  m1.showln();
 
-  printf("  Nothing -> *2:\n  ");
-  Chain<Maybe<int>>{false, 0}
-    .map([](int x) { return x * 2; })
-    .showln();                                          // Maybe<int>{Nothing}
+  auto m2 = Maybe<int>{false, 0}.map([](int x) { return x * 2; });
+  printf("  Nothing * 2: ");
+  m2.showln();
 
-  printf("  Just(42) -> double -> int:\n  ");
-  Chain<Maybe<int>>{true, 42}
-    .map([](int x) { return x * 1.5; })               // Maybe<int>    -> Maybe<double>
-    .showln()                                           // Maybe<double>{Just(63.00)}
-    .map([](double x) { return (int)x; })              // Maybe<double> -> Maybe<int>
-    .showln();                                          // Maybe<int>{Just(63)}
+  auto s6a = Maybe<int>{true, 42}.map([](int x) { return x * 1.5; });
+  printf("  Just(42) -> double: ");
+  s6a.showln();
+  auto s6b = s6a.map([](double x) { return (int)x; });
+  printf("  -> int: ");
+  s6b.showln();
 
   // -- 7. Zip: combine two containers --------------------------------------
 
   printf("\n--- 7. Zip: Combine Two Containers ---\n");
 
-  printf("  ");
-  Chain<Box<int>>{3}
-    .zip_with(Chain<Box<int>>{4},
-              [](int a, int b) { return a + b; })
-    .showln();                                          // Box<int>{7}
+  auto z1 = Box<int>{3}.zip_with(Box<int>{4},
+              [](int a, int b) { return a + b; });
+  printf("  3 + 4: ");
+  z1.showln();
 
-  printf("  ");
-  Chain<Box<int>>{3}
-    .zip_with(Chain<Box<int>>{4},
-              [](int a, int b) { return a * b; })
-    .showln();                                          // Box<int>{12}
+  auto z2 = Box<int>{3}.zip_with(Box<int>{4},
+              [](int a, int b) { return a * b; });
+  printf("  3 * 4: ");
+  z2.showln();
 
   // -- 8. Full pipeline: zip -> map -> show ---------------------------------
 
   printf("\n--- 8. Full Pipeline: Zip + Map + Show ---\n");
 
-  printf("  ");
-  Chain<Box<int>>{5}
-    .zip_with(Chain<Box<int>>{3},
-              [](int a, int b) { return a * b; })     // Box<int>{15}
-    .map([](int x) { return x + 0.5; })               // Box<double>{15.5}
-    .showln();                                          // Box<double>{15.50}
+  auto z3 = Box<int>{5}.zip_with(Box<int>{3},
+              [](int a, int b) { return a * b; });
+  auto z4 = z3.map([](int x) { return x + 0.5; });
+  printf("  5 * 3 + 0.5: ");
+  z4.showln();
 
   // -- 9. Cross-type + cross-trait: the full picture -----------------------
 

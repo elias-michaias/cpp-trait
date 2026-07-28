@@ -1305,6 +1305,52 @@ template <class D> using Impls = Impls_t<D>;
 using trait_impls_detail::Impls;
 
 // -----------------------------------------------------------------------------
+// Layer registration for static_trait hof methods.
+//
+// static_trait generates free functions but no layers.  These macros filter
+// the method list: type/template items are skipped, hof items become
+// forwarding layer methods that delegate to the static trait free functions.
+// This gives types inheriting Impls<T> dot-syntax for hof methods.
+// ----------------------------------------------------------------------------
+
+// Per-item dispatch: check element count, then whether it's a hof item.
+#define STATIC_LAYER_METHOD4_TUPLE(NS, TP, N, M)                               \
+  STATIC_LAYER_METHOD4_TUPLE_I(NS, TP, N, UNWRAP(M))
+#define STATIC_LAYER_METHOD4_TUPLE_I(NS, TP, N, ...)                           \
+  STATIC_LAYER_METHOD4_TUPLE_II(VA_COUNT(__VA_ARGS__), NS, TP, N, __VA_ARGS__)
+#define STATIC_LAYER_METHOD4_TUPLE_II(CNT, NS, TP, N, ...)                     \
+  CAT(STATIC_LAYER_METHOD4_, CNT)(NS, TP, N, __VA_ARGS__)
+
+// 2-element (type, Name) — not a method, skip.
+#define STATIC_LAYER_METHOD4_2(NS, TP, N, Kind, Name)
+
+// 3-element (template, Name, Args) — not a method, skip.
+#define STATIC_LAYER_METHOD4_3(NS, TP, N, Kind, Name, Extra)
+
+// 4-element — check if hof, then generate forwarding method.
+#define STATIC_LAYER_METHOD4_4(NS, TP, N, Kind, Return, Name, Params)          \
+  CAT(STATIC_LAYER_METHOD4_4_KIND_, HOF_IS_HOF(Kind))(NS, TP, N, Return, Name, Params)
+#define STATIC_LAYER_METHOD4_4_KIND_1(NS, TP, N, Return, Name, Params)         \
+  _HOF_LAYER_METHOD4(NS, TP, N, Return, Name, Params)
+#define STATIC_LAYER_METHOD4_4_KIND_0(NS, TP, N, Return, Name, Params)
+
+// Forwarding layer method for a hof item.
+// Uses variadic template + deducing this to forward any args to the free function.
+#define _HOF_LAYER_METHOD4(NS, TP, N, Return, Name, Params)                    \
+  template <typename... _HofArgs>                                               \
+  auto Name(this auto &&self, _HofArgs&&... _hof_args) {                        \
+    return ::NS::Name(self, std::forward<_HofArgs>(_hof_args)...);              \
+  }
+
+// Register layers for static_trait: filter hof items only, skip type/template.
+#define _static_trait_register_impl(NS, TP, N, ...)                             \
+  namespace trait_impls_detail {                                                \
+  template <class D> struct layer<D, N> : layer<D, N - 1> {                    \
+    FOR_EACH_WITH3(STATIC_LAYER_METHOD4_TUPLE, NS, TP, N, __VA_ARGS__)         \
+  };                                                                           \
+  }
+
+// -----------------------------------------------------------------------------
 // Minimal hof-aware static_trait override
 // ----------------------------------------------------------------------------
 
@@ -1317,7 +1363,8 @@ using trait_impls_detail::Impls;
     FOR_EACH_WITH(STATIC_TRAIT_REQ_ITEM, TP, UNWRAP_I MethodsTuple)            \
   };                                                                           \
   FOR_EACH_WITH(STATIC_TRAIT_FUNC_ITEM, TP, UNWRAP_I MethodsTuple)             \
-  }
+  }                                                                            \
+  _static_trait_register_impl(Name, TP, __COUNTER__, UNWRAP_I MethodsTuple)
 
 #define STATIC_TRAIT_REQ_ITEM(TP, Item) STATIC_TRAIT_REQ_ITEM_I(TP, UNWRAP(Item))
 #define STATIC_TRAIT_REQ_ITEM_I(TP, ...)                                       \
