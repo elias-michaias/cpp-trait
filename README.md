@@ -7,7 +7,7 @@ Generate concepts, static dispatch forwarding functions, mixins, and opt-in type
 *Dispatches statically, respects pointer semantics, performs no heap allocations, requires no OOP.*
 
 
-<img src="./capture.png" alt="cpp-trait code" />
+<img src="./code.png" alt="cpp-trait code" />
 
 ## Goals
 
@@ -18,7 +18,7 @@ This library is designed to enhance **"C-style C++"** - in fact, the tests for t
 - No reliance on C++ runtime
 - No heap allocation
 - Respect pointer semantics
-- Static functions first, instance functions opt-in via `Trait::Mixin`
+- Static functions first, instance functions opt-in via `Impls<Derived>`
 - Static dispatch first, dynamic dispatch opt-in via `Trait::Dyn`
 - Recursive static dispatch works exactly as you would expect
 - Concepts for trait constraints instead of arcane SFINAE errors
