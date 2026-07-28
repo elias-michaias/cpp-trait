@@ -1125,9 +1125,82 @@ struct probe_callable {
 #define THIRD_I(N, ...) THIRD_II(N, __VA_ARGS__)
 #define THIRD_II(N, ...) THIRD_##N(__VA_ARGS__)
 
+// ---------------------------------------------------------------------------
+//  Impls<Derived> : automatic registration-based mixin aggregation.
+//
+//  After defining a regular `trait(...)` or `ducktyped_trait(...)`, call
+//      register_trait(Name)
+//  once at namespace scope. Any subsequently declared
+//      struct T : Impls<T> { /* members */ };
+//  inherits `Name::Mixin` for every registered `Name`. This mirrors the
+//  CC (C Generics) article's extensible macro registry: each
+//  `register_trait` call reserves a slot, and `Impls` walks every slot at
+//  instantiation time.
+//
+//  When two registered traits expose methods with the same name, the bare
+//  `obj.method(...)` is ambiguous. The expected resolution is to skip the
+//  mixin sugar and call the trait's fully-qualified free function:
+//      NS::method(obj_or_ptr, ...);
+//  Both behaviours stay reachable that way, nothing has to be hidden or
+//  pulled into scope. The free functions are the canonical trait API;
+//  mixin methods are ergonomic sugar for the conflict-free case.
+//
+//  NOTE: this only applies to traits that generate a `Mixin` (i.e. `trait`
+//  and `ducktyped_trait`). `static_trait` / `static_ducktyped_trait` have no
+//  Mixin and must not be registered. Currently `register_trait` only
+//  handles 1-type-param traits (a 2-param trait's Mixin is itself a
+//  template and cannot be inherited unparameterised by the slot).
+// ---------------------------------------------------------------------------
+namespace trait_impls_detail {
+
+// Per-slot empty base type so unspecialised slots never cause ambiguous-base
+// errors when many of them are folded into a single inheritance chain.
+template <int N> struct empty_base {};
+
+// Primary slot: not registered -> inherit empty_base<N>.
+template <int N, class D> struct slot {
+  using type = empty_base<N>;
+};
+
+// Recursive inheritance chain: walk slots N..0.
+template <class D, int N> struct chain : slot<N, D>::type, chain<D, N - 1> {};
+template <class D> struct chain<D, 0> : slot<0, D>::type {};
+
+template <class D> struct Impls : chain<D, 256> {};
+
+} // namespace trait_impls_detail
+
+#if (defined(__cpp_explicit_this_parameter) &&                                 \
+     __cpp_explicit_this_parameter >= 202110L) || defined(__clang__)
+#define TRAIT_IMPLS_MIXIN(NS, D) ::NS::Mixin
+#else
+#define TRAIT_IMPLS_MIXIN(NS, D) ::NS::Mixin<D>
+#endif
+
+// Reserve the next macro-counter slot for `NS`. Each call uses `__COUNTER__`
+// exactly once so successive registrations occupy successive slot indices.
+//
+// The slot inherits `NS::Mixin` *unconditionally* (not gated on
+// `NS::Trait<D>`). The Mixin's methods are all templates written with
+// `if constexpr (requires { ::NS::Name(self, ...); })`, so they are only
+// instantiated when called. Gating on `Trait<D>` would instead evaluate the
+// concept at `Impls<D>` instantiation time -- which is *before* the user
+// specializes `Impl<D>` -- producing a spurious false result. The lazy
+// `if constexpr` inside each Mixin method is what actually decides whether
+// a forwarded call is well-formed at use site.
+#define register_trait(NS)                                                     \
+  namespace trait_impls_detail {                                              \
+  template <class D> struct slot<__COUNTER__, D> {                             \
+    using type = TRAIT_IMPLS_MIXIN(NS, D);                                   \
+  };                                                                          \
+  }
+
+// Expose Impls at global scope so users can write `struct T : Impls<T> { ... };`.
+using trait_impls_detail::Impls;
+
 // -----------------------------------------------------------------------------
 // Minimal hof-aware static_trait override
-// -----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 
 #undef static_trait
 #define static_trait(Name, TP, MethodsTuple)                                   \
