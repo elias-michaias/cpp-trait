@@ -23,15 +23,17 @@ trait(Show, (Self), (
   (Self *, showln, (Self *)),
 ))
 
-static_trait(Functor, (Self),
-             ((type, value_type), (template, Mapped, (U)),
-              hof((template, Mapped, (U)), map,
-                  (Self, fn(U, value_type))), ))
+static_trait(Functor, (Self), (
+      (type, value_type), 
+      (template, Mapped, (U)),
+      hof((template, Mapped, (U)), map, (Self, fn(U, value_type))), 
+))
 
-static_trait(Zip, (Self),
-             ((type, value_type), (template, Mapped, (U)),
-              hof((template, Mapped, (U)), zip_with,
-                  (Self, Self, fn(U, value_type, value_type))), ))
+static_trait(Zip, (Self), (
+      (type, value_type), 
+      (template, Mapped, (U)),
+      hof((template, Mapped, (U)), zip_with, (Self, Self, fn(U, value_type, value_type))), 
+))
 
 trait(Builder, (Self), (
   (Self *, set_host,    (Self *, const char *)),
@@ -52,8 +54,10 @@ trait(Lifecycle, (Self), (
   (Self *, stop,  (Self *)),
 ))
 
+struct Server;
+
 trait(ConfigBuild, (Self), (
-  (void *, build, (Self *)),
+  (Server *, build, (Self *)),
 ))
 
 // ===========================================================================
@@ -198,7 +202,7 @@ struct Server : Impls<Server> {
 };
 
 template <> struct ConfigBuild::Impl<Config> {
-  static void *build(Config *self) {
+  static Server *build(Config *self) {
     static Server srv;
     strncpy(srv.host, self->host, sizeof(srv.host) - 1);
     srv.port    = self->port;
@@ -276,7 +280,7 @@ int main() {
 
   Config cfg3;
   cfg3.set_host("api.service.io")->set_port(3000)->set_retries(3);
-  Server *srv = static_cast<Server *>(cfg3.build());
+  Server *srv = cfg3.build();
   srv->start()->describe()->stop();
 
   // -- 4. Functional pipeline: cross-type map chain -------------------------
@@ -368,9 +372,9 @@ int main() {
   printf("  configured: ");
   cfg4.describe();
   printf("  built+started: ");
-  static_cast<Server *>(cfg4.build())->start();
+  cfg4.build()->start();
   printf("  describe: ");
-  static_cast<Server *>(cfg4.build())->describe();
+  cfg4.build()->describe();
   printf("  stopped: ");
-  static_cast<Server *>(cfg4.build())->stop();
+  cfg4.build()->stop();
 }
