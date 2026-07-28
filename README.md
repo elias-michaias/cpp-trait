@@ -33,7 +33,18 @@ This library is not designed for traditional C++ OOP, but is rather an alternati
 
 ## Examples
 
-- [t1.cpp](https://github.com/elias-michaias/cpp-trait/blob/main/examples/t1.cpp)
+Each example builds on the previous, progressively demonstrating more of the trait system.
+
+| Example | Description |
+|---------|-------------|
+| [t1.cpp](https://github.com/elias-michaias/cpp-trait/blob/main/examples/t1.cpp) | **Basics** -- defining traits, implementing them on concrete types, calling through qualified free functions (`Shape::area(&c)`) and concept-constrained generics (`Shape::Trait T`). |
+| [t2.cpp](https://github.com/elias-michaias/cpp-trait/blob/main/examples/t2.cpp) | **Higher-order functions** -- `static_trait` with `hof()` for callable parameters, type-changing `map` chains, and associated types (`value_type`, `Mapped<U>`). |
+| [t3.cpp](https://github.com/elias-michaias/cpp-trait/blob/main/examples/t3.cpp) | **Duck typing** -- `ducktyped_trait` vs strict traits, implicit conversions through trait boundaries. |
+| [t4.cpp](https://github.com/elias-michaias/cpp-trait/blob/main/examples/t4.cpp) | **Dynamic dispatch** -- `Trait::Dyn` fat pointers, vtable-based type erasure, mixing static and dynamic call sites. |
+| [t5.cpp](https://github.com/elias-michaias/cpp-trait/blob/main/examples/t5.cpp) | **Multi-param traits** -- 2- and 3-parameter traits (`Into`, `ZipWith`), generic algorithms over trait capabilities. |
+| [t6.cpp](https://github.com/elias-michaias/cpp-trait/blob/main/examples/t6.cpp) | **Layer chain / Impls** -- `Impls<Derived>` mixin aggregation, dot-syntax via deducing-this, cross-trait method forwarding. |
+| [t7.cpp](https://github.com/elias-michaias/cpp-trait/blob/main/examples/t7.cpp) | **Multi-param concepts** -- recursive dispatch, `Into` conversions, `ZipWith` over heterogeneous containers, interop with C-style polymorphism. |
+| [t8.cpp](https://github.com/elias-michaias/cpp-trait/blob/main/examples/t8.cpp) | **Fluent APIs** -- builder pattern with `Self *` returns, functional pipelines (Functor/Zip/Show via layers), cross-type chaining, zero-overhead POD structs with all methods from traits. |
 
 ## Use cases
 
