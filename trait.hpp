@@ -41,6 +41,91 @@ struct probe_callable {
   constexpr Ret operator()(Args...) const noexcept;
 };
 
+//--------------------------------------------------------------------
+//  cpp2 signature helpers -- extract Ret/Args from a function-type spec
+//  using the C++ "auto (Params) -> Ret" trailing-return placeholder.
+//  e.g. `sig_trait<auto (Self) -> int>` matches `sig_trait<int(Self)>`.
+//--------------------------------------------------------------------
+template <class Sig> struct sig_trait;
+template <class R, class... A> struct sig_trait<R(A...)> { using ret = R; };
+template <class R, class... A> struct sig_trait<R(A...) const> { using ret = R; };
+template <class Sig> using sig_ret = typename sig_trait<Sig>::ret;
+
+// Calls `fn(args...)` with std::declval<A>()... so it can be used inside
+// a `requires` clause without naming the parameter types at preprocessor
+// time.
+template <class Sig> struct sig_invoke;
+template <class R, class... A>
+struct sig_invoke<R(A...)> {
+  template <class F> static R call(F &&fn) {
+    return std::forward<F>(fn)(std::declval<A>()...);
+  }
+};
+template <class R, class... A>
+struct sig_invoke<R(A...) const> {
+  template <class F> static R call(F &&fn) {
+    return std::forward<F>(fn)(std::declval<A>()...);
+  }
+};
+
+// Function-pointer type `R(*)(void*, A...)` so the VTable can store the
+// type-erased entry for a single-type-param trait. (Multi-param vtables
+// are wrapped per-trait by the existing macro layer; this single helper
+// covers the (Self) and (Self, ...) cases that cpp2 emits.) The first
+// parameter of the signature (typically `Self`) is replaced with `void *`;
+// any const qualifier is dropped because the VTable slot stores the raw
+// entry and the lambda does the cast.
+template <class Sig> struct sig_vp_first;
+template <class R> struct sig_vp_first<R()> {
+  using type = R (*)(void *);
+};
+template <class R> struct sig_vp_first<R() const> {
+  using type = R (*)(void *);
+};
+template <class R, class First, class... Rest>
+struct sig_vp_first<R(First, Rest...)> {
+  using type = R (*)(void *, Rest...);
+};
+template <class R, class First, class... Rest>
+struct sig_vp_first<R(First, Rest...) const> {
+  using type = R (*)(void *, Rest...);
+};
+template <class Sig> using sig_vp_first_t = typename sig_vp_first<Sig>::type;
+
+// First argument type of a signature (typically `Self` or `Self *`).
+// Used to recover the receiver type from the function-type spec when
+// building vtable entries.
+template <class Sig> struct sig_first_t_helper;
+template <class R, class First, class... Rest>
+struct sig_first_t_helper<R(First, Rest...)> { using type = First; };
+template <class R, class First, class... Rest>
+struct sig_first_t_helper<R(First, Rest...) const> { using type = First; };
+template <class Sig> using sig_first_t = typename sig_first_t_helper<Sig>::type;
+
+// Plain `R(*)(A...)` for use in the `&Impl::name` function-pointer check.
+// `const` qualifier (if any) is dropped because free function pointers
+// cannot be const-qualified.
+template <class Sig> struct sig_full_ptr;
+template <class R, class... A> struct sig_full_ptr<R(A...)> {
+  using type = R (*)(A...);
+};
+template <class R, class... A> struct sig_full_ptr<R(A...) const> {
+  using type = R (*)(A...);
+};
+template <class Sig> using sig_full_ptr_t = typename sig_full_ptr<Sig>::type;
+
+// `std::tuple<A...>` matching the parameter types of the signature. Used
+// together with std::apply to invoke an overload-set member function in
+// the concept requires clause without naming each parameter explicitly.
+template <class Sig> struct sig_tuple_helper;
+template <class R, class... A> struct sig_tuple_helper<R(A...)> {
+  using type = std::tuple<A...>;
+};
+template <class R, class... A> struct sig_tuple_helper<R(A...) const> {
+  using type = std::tuple<A...>;
+};
+template <class Sig> using sig_tuple_t = typename sig_tuple_helper<Sig>::type;
+
 } // namespace gen_interface_detail
 
 //--------------------------------------------------------------------
@@ -325,26 +410,74 @@ struct probe_callable {
 //  Duck‑typed operation macros
 //--------------------------------------------------------------------
 #define DUCK_TRAIT_REQ4_TUPLE(TP, M) DUCK_TRAIT_REQ4_APPLY(TP, UNWRAP(M))
-#define DUCK_TRAIT_REQ4_APPLY(TP, ...) DUCK_TRAIT_REQ4(TP, __VA_ARGS__)
-#define DUCK_TRAIT_REQ4(TP, Ret, Name, Params)                                 \
+#define DUCK_TRAIT_REQ4_APPLY(TP, ...) DUCK_TRAIT_REQ4_DISPATCH(TP, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
+#define DUCK_TRAIT_REQ4_DISPATCH(TP, N, ...) CAT(DUCK_TRAIT_REQ4_, N)(TP, __VA_ARGS__)
+#define DUCK_TRAIT_REQ4_2(TP, Name, Sig)                                        \
+  { std::apply(                                                                \
+      [](auto &&...args) {                                                     \
+        return Impl<ALL_ARGS(TP)>::Name(std::forward<decltype(args)>(args)...); \
+      },                                                                       \
+      std::declval<                                                            \
+          ::gen_interface_detail::sig_tuple_t<auto Sig>>()) };
+#define DUCK_TRAIT_REQ4_3(TP, Ret, Name, Params)                                \
   {Impl<ALL_ARGS(TP)>::Name(TUPLE_TO_DECLVALS(Params))};
+#define DUCK_TRAIT_REQ4(TP, Ret, Name, Params) DUCK_TRAIT_REQ4_3(TP, Ret, Name, Params)
 
-// Generates both strict and generic overloads for free functions
+// Generates both strict and generic overloads for free functions.
+// Dispatches on tuple arity: 3-tuple (Ret, Name, Params) is the legacy
+// format; 2-tuple (Name, Sig) is the cpp2 ergonomics format where Sig is
+// a function-type spec like `auto (Self, int) -> void`.
 #define FREE_FUNC4_TUPLE(TP, M) FREE_FUNC4_APPLY(TP, UNWRAP(M))
-#define FREE_FUNC4_APPLY(TP, ...) FREE_FUNC4(TP, __VA_ARGS__)
-#define FREE_FUNC4(TP, Ret, Name, Params)                                      \
-  FUNC_TEMPLATE_HEAD(TP) auto Name(FUNC_PARAMS(Params)) {                     \
-    return Impl<ALL_ARGS(TP)>::Name(CALL_ARGS(Params));                        \
-  }                                                                            
+#define FREE_FUNC4_APPLY(TP, ...) FREE_FUNC4_DISPATCH(TP, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
+#define FREE_FUNC4_DISPATCH(TP, N, ...) CAT(FREE_FUNC4_, N)(TP, __VA_ARGS__)
+#define FREE_FUNC4_2(TP, Name, Sig)                                             \
+  FUNC_TEMPLATE_HEAD(TP) auto Name(                                              \
+      ::gen_interface_detail::sig_first_t<auto Sig> self,                       \
+      auto... args)                                                              \
+      -> ::gen_interface_detail::sig_ret<auto Sig> {                            \
+    return Impl<ALL_ARGS(TP)>::Name(self, args...);                            \
+  }
+#define FREE_FUNC4_3(TP, Ret, Name, Params)                                      \
+  FUNC_TEMPLATE_HEAD(TP) auto Name(FUNC_PARAMS(Params)) {                       \
+    return Impl<ALL_ARGS(TP)>::Name(CALL_ARGS(Params));                         \
+  }
+#define FREE_FUNC4(TP, Ret, Name, Params) FREE_FUNC4_3(TP, Ret, Name, Params)                                                                            
 
 #define VTABLE_MEMBER4_TUPLE(TP, M) VTABLE_MEMBER4_APPLY(TP, UNWRAP(M))
-#define VTABLE_MEMBER4_APPLY(TP, ...) VTABLE_MEMBER4(TP, __VA_ARGS__)
-#define VTABLE_MEMBER4(TP, Ret, Name, Params)                                  \
+#define VTABLE_MEMBER4_APPLY(TP, ...) VTABLE_MEMBER4_DISPATCH(TP, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
+#define VTABLE_MEMBER4_DISPATCH(TP, N, ...) CAT(VTABLE_MEMBER4_, N)(TP, __VA_ARGS__)
+#define VTABLE_MEMBER4_2(TP, Name, Sig)                                         \
+  ::gen_interface_detail::sig_vp_first_t<auto Sig> Name;
+#define VTABLE_MEMBER4_3(TP, Ret, Name, Params)                                  \
   TYPE_SPEC(Ret) (*Name)(void *VTABLE_EXTRA_PARAMS(Params));
+#define VTABLE_MEMBER4(TP, Ret, Name, Params) VTABLE_MEMBER4_3(TP, Ret, Name, Params)
 
 #define VT_ENTRY4_TUPLE(TP, M) VT_ENTRY4_APPLY(TP, UNWRAP(M))
-#define VT_ENTRY4_APPLY(TP, ...) VT_ENTRY4(TP, __VA_ARGS__)
-#define VT_ENTRY4(TP, Ret, Name, Params)                                       \
+#define VT_ENTRY4_APPLY(TP, ...) VT_ENTRY4_DISPATCH(TP, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
+#define VT_ENTRY4_DISPATCH(TP, N, ...) CAT(VT_ENTRY4_, N)(TP, __VA_ARGS__)
+#define VT_ENTRY4_2(TP, Name, Sig)                                              \
+  .Name = [](void *p, auto... args) {                                          \
+    using Receiver = ::gen_interface_detail::sig_first_t<auto Sig>;            \
+    using R = ::gen_interface_detail::sig_ret<auto Sig>;                        \
+    if constexpr (std::is_void_v<R>) {                                          \
+      Impl<ALL_ARGS(TP)>::Name(                                                \
+          ::gen_interface_detail::receiver_from<Receiver, FIRST(TP)>(         \
+              p),                                                              \
+          args...);                                                            \
+    } else if constexpr (std::is_same_v<R, FIRST(TP) *>) {                     \
+      return static_cast<void *>(                                              \
+          Impl<ALL_ARGS(TP)>::Name(                                            \
+              ::gen_interface_detail::receiver_from<Receiver, FIRST(TP)>(      \
+                  p),                                                          \
+              args...));                                                       \
+    } else {                                                                   \
+      return Impl<ALL_ARGS(TP)>::Name(                                         \
+          ::gen_interface_detail::receiver_from<Receiver, FIRST(TP)>(          \
+              p),                                                              \
+          args...);                                                            \
+    }                                                                          \
+  },
+#define VT_ENTRY4_3(TP, Ret, Name, Params)                                       \
   .Name = [](void *p VT_LAMBDA_EXTRA_PARAMS(Params)) {                        \
     using Receiver = FIRST(Params);                                            \
     if constexpr (std::is_void_v<TYPE_SPEC(Ret)>) {                            \
@@ -363,10 +496,28 @@ struct probe_callable {
               CALL_EXTRA_ARGS(Params));                                        \
     }                                                                          \
   },
+#define VT_ENTRY4(TP, Ret, Name, Params) VT_ENTRY4_3(TP, Ret, Name, Params)
 
 #define IMPL_DYN_METHOD4_TUPLE(TP, M) IMPL_DYN_METHOD4_APPLY(TP, UNWRAP(M))
-#define IMPL_DYN_METHOD4_APPLY(TP, ...) IMPL_DYN_METHOD4(TP, __VA_ARGS__)
-#define IMPL_DYN_METHOD4(TP, Ret, Name, Params)                                \
+#define IMPL_DYN_METHOD4_APPLY(TP, ...) IMPL_DYN_METHOD4_DISPATCH(TP, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
+#define IMPL_DYN_METHOD4_DISPATCH(TP, N, ...) CAT(IMPL_DYN_METHOD4_, N)(TP, __VA_ARGS__)
+#define IMPL_DYN_METHOD4_2(TP, Name, Sig)                                       \
+  static auto Name(Dyn ANGLE_EXTRA_ARGS(TP) &&d, auto... args) {                \
+    return d.vtable->Name(d.object, args...);                                  \
+  }                                                                             \
+  static auto Name(Dyn ANGLE_EXTRA_ARGS(TP) &d, auto... args) {                \
+    return d.vtable->Name(d.object, args...);                                  \
+  }                                                                             \
+  static auto Name(Dyn ANGLE_EXTRA_ARGS(TP) *d, auto... args) {                 \
+    return d->vtable->Name(d->object, args...);                                \
+  }                                                                             \
+  static auto Name(const Dyn ANGLE_EXTRA_ARGS(TP) &d, auto... args) {          \
+    return d.vtable->Name(d.object, args...);                                  \
+  }                                                                             \
+  static auto Name(const Dyn ANGLE_EXTRA_ARGS(TP) *d, auto... args) {          \
+    return d->vtable->Name(d->object, args...);                                \
+  }
+#define IMPL_DYN_METHOD4_3(TP, Ret, Name, Params)                                \
   static auto Name(Dyn ANGLE_EXTRA_ARGS(TP) &&                                \
                   d VT_LAMBDA_EXTRA_PARAMS(Params)) {                          \
     return d.vtable->Name(d.object CALL_EXTRA_ARGS(Params));                   \
@@ -387,6 +538,7 @@ struct probe_callable {
                   d VT_LAMBDA_EXTRA_PARAMS(Params)) {                          \
     return d->vtable->Name(d->object CALL_EXTRA_ARGS(Params));                 \
   }
+#define IMPL_DYN_METHOD4(TP, Ret, Name, Params) IMPL_DYN_METHOD4_3(TP, Ret, Name, Params)
 
 // Explicit typed member methods on `Dyn<B>`. For 1-param traits this is a
 // duplicate of what the inherited non-template Mixin method already
@@ -401,8 +553,22 @@ struct probe_callable {
 #define DYN_TYPED_METHOD4_TUPLE(NS, TP, M)                                      \
   DYN_TYPED_METHOD4_APPLY(NS, TP, UNWRAP(M))
 #define DYN_TYPED_METHOD4_APPLY(NS, TP, ...)                                    \
-  DYN_TYPED_METHOD4(NS, TP, __VA_ARGS__)
-#define DYN_TYPED_METHOD4(NS, TP, Ret, Name, Params)                            \
+  DYN_TYPED_METHOD4_DISPATCH(NS, TP, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
+#define DYN_TYPED_METHOD4_DISPATCH(NS, TP, N, ...)                              \
+  CAT(DYN_TYPED_METHOD4_, N)(NS, TP, __VA_ARGS__)
+#define DYN_TYPED_METHOD4_2(NS, TP, Name, Sig)                                  \
+  auto Name(this auto &self, auto... args)                                     \
+      -> decltype(::NS::Name ANGLE_EXTRA_ARGS(TP)(                              \
+          self, args...)) {                                                    \
+    if constexpr (requires {                                                   \
+                    ::NS::Name ANGLE_EXTRA_ARGS(TP)(self, args...);            \
+                  }) {                                                         \
+      return ::NS::Name ANGLE_EXTRA_ARGS(TP)(self, args...);                   \
+    } else {                                                                   \
+      return ::NS::Name ANGLE_EXTRA_ARGS(TP)(&self, args...);                  \
+    }                                                                          \
+  }
+#define DYN_TYPED_METHOD4_3(NS, TP, Ret, Name, Params)                          \
   auto Name(this auto &self MIXIN_METHOD_EXTRA_PARAMS(Params)) {               \
     if constexpr (requires {                                                   \
                     ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params)); \
@@ -412,6 +578,7 @@ struct probe_callable {
       return ::NS::Name ANGLE_EXTRA_ARGS(TP)(&self CALL_EXTRA_ARGS(Params));  \
     }                                                                          \
   }
+#define DYN_TYPED_METHOD4(NS, TP, Ret, Name, Params) DYN_TYPED_METHOD4_3(NS, TP, Ret, Name, Params)
 
 #else // !TRAIT_HAS_DEDUCING_THIS -- C++20 fallback: Dyn<B> has no typed
        // method sugar. Callers use `NS::method(dyn, ...)` (the qualified
@@ -468,8 +635,23 @@ struct probe_callable {
 #if TRAIT_HAS_DEDUCING_THIS
 
 #define MIXIN_METHOD4_TUPLE(NS, TP, M) MIXIN_METHOD4_APPLY(NS, TP, UNWRAP(M))
-#define MIXIN_METHOD4_APPLY(NS, TP, ...) MIXIN_METHOD4(TP, NS, __VA_ARGS__)
-#define MIXIN_METHOD4(TP, NS, Ret, Name, Params)                                \
+#define MIXIN_METHOD4_APPLY(NS, TP, ...)                                        \
+  MIXIN_METHOD4_DISPATCH(NS, TP, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
+#define MIXIN_METHOD4_DISPATCH(NS, TP, N, ...) CAT(MIXIN_METHOD4_, N)(NS, TP, __VA_ARGS__)
+#define MIXIN_METHOD4_2(NS, TP, Name, Sig)                                       \
+  MIXIN_METHOD_TEMPLATE_HEAD(TP)                                               \
+  auto Name(this auto &self, auto... args)                                     \
+      -> decltype(::NS::Name ANGLE_EXTRA_ARGS(TP)(                              \
+          self, args...)) {                                                    \
+    if constexpr (requires {                                                   \
+                     ::NS::Name ANGLE_EXTRA_ARGS(TP)(self, args...);            \
+                   }) {                                                        \
+      return ::NS::Name ANGLE_EXTRA_ARGS(TP)(self, args...);                   \
+    } else {                                                                   \
+      return ::NS::Name ANGLE_EXTRA_ARGS(TP)(&self, args...);                  \
+    }                                                                          \
+  }
+#define MIXIN_METHOD4_3(NS, TP, Ret, Name, Params)                              \
   MIXIN_METHOD_TEMPLATE_HEAD(TP)                                               \
   auto Name(this auto &self MIXIN_METHOD_EXTRA_PARAMS(Params)) {               \
     if constexpr (requires {                                                   \
@@ -480,6 +662,7 @@ struct probe_callable {
       return ::NS::Name ANGLE_EXTRA_ARGS(TP)(&self CALL_EXTRA_ARGS(Params));   \
     }                                                                          \
   }
+#define MIXIN_METHOD4(TP, NS, Ret, Name, Params) MIXIN_METHOD4_3(NS, TP, Ret, Name, Params)
 
 #else // !TRAIT_HAS_DEDUCING_THIS -- C++20 fallback: no method syntax.
 
@@ -502,10 +685,23 @@ struct probe_callable {
 //  Strict operation macros
 //--------------------------------------------------------------------
 #define STRICT_TRAIT_REQ4_TUPLE(TP, M) STRICT_TRAIT_REQ4_APPLY(TP, UNWRAP(M))
-#define STRICT_TRAIT_REQ4_APPLY(TP, ...) STRICT_TRAIT_REQ4(TP, __VA_ARGS__)
-#define STRICT_TRAIT_REQ4(TP, Ret, Name, Params)                               \
+#define STRICT_TRAIT_REQ4_APPLY(TP, ...) STRICT_TRAIT_REQ4_DISPATCH(TP, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
+#define STRICT_TRAIT_REQ4_DISPATCH(TP, N, ...) CAT(STRICT_TRAIT_REQ4_, N)(TP, __VA_ARGS__)
+#define STRICT_TRAIT_REQ4_2(TP, Name, Sig)                                      \
+  { std::apply(                                                                \
+      [](auto &&...args) {                                                     \
+        return Impl<ALL_ARGS(TP)>::Name(std::forward<decltype(args)>(args)...); \
+      },                                                                       \
+      std::declval<                                                            \
+          ::gen_interface_detail::sig_tuple_t<auto Sig>>()) }                  \
+      ->std::same_as<::gen_interface_detail::sig_ret<auto Sig>>;               \
+  { static_cast<::gen_interface_detail::sig_full_ptr_t<auto Sig>>(            \
+      Impl<ALL_ARGS(TP)>::Name) }                                              \
+      ->std::same_as<::gen_interface_detail::sig_full_ptr_t<auto Sig>>;
+#define STRICT_TRAIT_REQ4_3(TP, Ret, Name, Params)                             \
   {Impl<ALL_ARGS(TP)>::Name(TUPLE_TO_DECLVALS(Params))}->std::same_as<TYPE_SPEC(Ret)>;    \
   {&Impl<ALL_ARGS(TP)>::Name}->std::same_as<TYPE_SPEC(Ret) (*)(PARAM_TYPES(Params))>;
+#define STRICT_TRAIT_REQ4(TP, Ret, Name, Params) STRICT_TRAIT_REQ4_3(TP, Ret, Name, Params)
 
 //--------------------------------------------------------------------
 //  Static trait helpers (duck)
@@ -626,7 +822,7 @@ struct probe_callable {
     FOR_EACH_WITH2(MIXIN_METHOD4_TUPLE, NS, TP, __VA_ARGS__)                   \
   };                                                                           \
   TEMPLATE_DECL(TP) struct VTable {                                            \
-    using Self = void;                                                         \
+    struct Self;                                                              \
     FOR_EACH_WITH(VTABLE_MEMBER4_TUPLE, TP, __VA_ARGS__)                       \
   };                                                                           \
   template <TYPENAME_LIST(TP)>                                                 \
@@ -687,7 +883,7 @@ struct probe_callable {
     FOR_EACH_WITH2(MIXIN_METHOD4_TUPLE, NS, TP, __VA_ARGS__)                   \
   };                                                                           \
   TEMPLATE_DECL(TP) struct VTable {                                            \
-    using Self = void;                                                         \
+    struct Self;                                                              \
     FOR_EACH_WITH(VTABLE_MEMBER4_TUPLE, TP, __VA_ARGS__)                       \
   };                                                                           \
   template <TYPENAME_LIST(TP)>                                                 \
@@ -1256,9 +1452,33 @@ template <class D> using Impls = Impls_t<D>;
 // dispatch picks the right trait at call time.
 #define LAYER_METHOD4_TUPLE(NS, TP, N, M)                                       \
   LAYER_METHOD4_APPLY(NS, TP, N, UNWRAP(M))
-#define LAYER_METHOD4_APPLY(NS, TP, N, ...) LAYER_METHOD4(NS, TP, N, __VA_ARGS__)
-#define LAYER_METHOD4(NS, TP, N, Ret, Name, Params)                             \
-  MIXIN_METHOD_TEMPLATE_HEAD(TP)                                               \
+#define LAYER_METHOD4_APPLY(NS, TP, N, ...)                                     \
+  LAYER_METHOD4_DISPATCH(NS, TP, N, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
+#define LAYER_METHOD4_DISPATCH(NS, TP, N, CNT, ...)                              \
+  CAT(LAYER_METHOD4_, CNT)(NS, TP, N, __VA_ARGS__)
+#define LAYER_METHOD4_2(NS, TP, N, Name, Sig)                                   \
+  MIXIN_METHOD_TEMPLATE_HEAD(TP)                                                \
+  auto Name(this auto &self, auto... args)                                      \
+      -> decltype(::NS::Name ANGLE_EXTRA_ARGS(TP)(                               \
+          self, args...)) {                                                     \
+    if constexpr (requires {                                                    \
+                     ::NS::Name ANGLE_EXTRA_ARGS(TP)(self, args...);            \
+                   }) {                                                         \
+      return ::NS::Name ANGLE_EXTRA_ARGS(TP)(self, args...);                     \
+    } else if constexpr (requires {                                             \
+                     ::NS::Name ANGLE_EXTRA_ARGS(TP)(&self, args...);           \
+                   }) {                                                         \
+      return ::NS::Name ANGLE_EXTRA_ARGS(TP)(&self, args...);                   \
+    } else if constexpr (requires {                                             \
+                     self.trait_impls_detail::template layer<D, N - 1>::       \
+                         LAYER_FALLBACK_KW(TP) Name ANGLE_EXTRA_ARGS(TP)(args...); \
+                   }) {                                                         \
+      return self.trait_impls_detail::template layer<D, N - 1>::                \
+          LAYER_FALLBACK_KW(TP) Name ANGLE_EXTRA_ARGS(TP)(args...);              \
+    }                                                                          \
+  }
+#define LAYER_METHOD4_3(NS, TP, N, Ret, Name, Params)                          \
+  MIXIN_METHOD_TEMPLATE_HEAD(TP)                                                \
   auto Name(this auto &self MIXIN_METHOD_EXTRA_PARAMS(Params)) {               \
     if constexpr (requires {                                                   \
                      ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params)); \
@@ -1276,6 +1496,7 @@ template <class D> using Impls = Impls_t<D>;
           Name ANGLE_EXTRA_ARGS(TP)(FORWARD_ARGS(Params));                      \
     }                                                                          \
   }
+#define LAYER_METHOD4(NS, TP, N, Ret, Name, Params) LAYER_METHOD4_3(NS, TP, N, Ret, Name, Params)
 
 #else // !TRAIT_HAS_DEDUCING_THIS -- C++20 fallback: no method syntax.
 

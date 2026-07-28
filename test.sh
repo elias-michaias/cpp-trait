@@ -53,7 +53,7 @@ echo "Compiler : $CXX"
 echo "Examples : $SCRIPT_DIR/examples/"
 echo "─────────────────────────────────"
 
-for src in "$SCRIPT_DIR"/examples/t[1-6].cpp; do
+for src in "$SCRIPT_DIR"/examples/t[1-6].cpp "$SCRIPT_DIR"/examples/t[9].cpp; do
   run_example "$src" "$STD"
 done
 
