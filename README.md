@@ -7,7 +7,7 @@ Generate concepts, static dispatch forwarding functions, mixins, and opt-in type
 *Dispatches statically, respects pointer semantics, performs no heap allocations, requires no OOP.*
 
 
-<img src="./code.png" alt="cpp-trait code" />
+<img src="./capture.png" alt="cpp-trait code" />
 
 ## Goals
 
