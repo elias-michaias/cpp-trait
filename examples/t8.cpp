@@ -54,10 +54,15 @@ trait(Lifecycle, (Self), (
   (Self *, stop,  (Self *)),
 ))
 
-struct Server;
+struct Server : Impls<Server> {
+  char host[64] = {};
+  int port       = 0;
+  int retries    = 0;
+  bool running   = false;
+};
 
 trait(ConfigBuild, (Self), (
-  (Server *, build, (Self *)),
+  (Server, build, (Self *)),
 ))
 
 // ===========================================================================
@@ -194,21 +199,14 @@ template <> struct Describable::Impl<Config> {
   }
 };
 
-struct Server : Impls<Server> {
-  char host[64] = {};
-  int port       = 0;
-  int retries    = 0;
-  bool running   = false;
-};
-
 template <> struct ConfigBuild::Impl<Config> {
-  static Server *build(Config *self) {
+  static Server build(Config *self) {
     static Server srv;
     strncpy(srv.host, self->host, sizeof(srv.host) - 1);
     srv.port    = self->port;
     srv.retries = self->retries;
     srv.running = false;
-    return &srv;
+    return srv;
   }
 };
 
@@ -280,8 +278,8 @@ int main() {
 
   Config cfg3;
   cfg3.set_host("api.service.io")->set_port(3000)->set_retries(3);
-  Server *srv = cfg3.build();
-  srv->start()->describe()->stop();
+  Server srv = cfg3.build();
+  srv.start()->describe()->stop();
 
   // -- 4. Functional pipeline: cross-type map chain -------------------------
   //
@@ -372,9 +370,10 @@ int main() {
   printf("  configured: ");
   cfg4.describe();
   printf("  built+started: ");
-  cfg4.build()->start();
+  Server s2 = cfg4.build();
+  s2.start();
   printf("  describe: ");
-  cfg4.build()->describe();
+  s2.describe();
   printf("  stopped: ");
-  cfg4.build()->stop();
+  s2.stop();
 }
