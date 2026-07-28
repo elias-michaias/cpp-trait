@@ -29,7 +29,6 @@
 //   7. Mixin is opt-in: trait satisfaction lives in Impl, not Mixin
 
 #include <cstdio>
-#include <type_traits>
 #include "../trait.hpp"
 
 // ─────────────────────────────────────────────────────────────────────────────
