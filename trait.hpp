@@ -6,6 +6,19 @@
 #include <type_traits>
 #include <utility>
 
+// C++23 deducing-this (explicit object parameters) is what lets Mixin
+// methods bind to the most-derived object without CRTP. Pre-C++23
+// compilers (or `-std=c++20`) get the full trait mechanism -- concepts,
+// free functions, Impl, Dyn, vtable -- but no method syntax: Mixin is
+// generated as an empty struct, so `obj.method()` is unavailable and
+// callers use the qualified free functions (`NS::method(obj, ...)`) which
+// are the canonical trait API anyway.
+#if __cplusplus >= 202302L
+#define TRAIT_HAS_DEDUCING_THIS 1
+#else
+#define TRAIT_HAS_DEDUCING_THIS 0
+#endif
+
 namespace gen_interface_detail {
 
 struct identity_callable {
@@ -71,6 +84,13 @@ struct probe_callable {
 #define FEWH2(macro, data1, data2, a1, ...)                                    \
   macro(data1, data2, a1) __VA_OPT__(FEWA2 PARENS(macro, data1, data2, __VA_ARGS__))
 #define FEWA2() FEWH2
+
+#define FOR_EACH_WITH3(macro, data1, data2, data3, ...)                         \
+  __VA_OPT__(EXPAND(FEWH3(macro, data1, data2, data3, __VA_ARGS__)))
+#define FEWH3(macro, data1, data2, data3, a1, ...)                             \
+  macro(data1, data2, data3, a1)                                               \
+    __VA_OPT__(FEWA3 PARENS(macro, data1, data2, data3, __VA_ARGS__))
+#define FEWA3() FEWH3
 
 //--------------------------------------------------------------------
 //  Arity / unwrap
@@ -160,6 +180,17 @@ struct probe_callable {
 #define CALL_EXTRA_ARGS(P) CALL_EXTRA_ARGS_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
 #define CALL_EXTRA_ARGS_I(N, ...) CALL_EXTRA_ARGS_II(N, __VA_ARGS__)
 #define CALL_EXTRA_ARGS_II(N, ...) CALL_EXTRA_ARGS_##N(__VA_ARGS__)
+
+// Same as CALL_EXTRA_ARGS but WITHOUT the leading comma -- for member-call
+// syntax `obj.method(FORWARD_ARGS(Params))` where `self` is implicit.
+#define FORWARD_ARGS_1(S)
+#define FORWARD_ARGS_2(S, T1) std::forward<decltype(p1)>(p1)
+#define FORWARD_ARGS_3(S, T1, T2) std::forward<decltype(p1)>(p1), std::forward<decltype(p2)>(p2)
+#define FORWARD_ARGS_4(S, T1, T2, T3) std::forward<decltype(p1)>(p1), std::forward<decltype(p2)>(p2), std::forward<decltype(p3)>(p3)
+#define FORWARD_ARGS_5(S, T1, T2, T3, T4) std::forward<decltype(p1)>(p1), std::forward<decltype(p2)>(p2), std::forward<decltype(p3)>(p3), std::forward<decltype(p4)>(p4)
+#define FORWARD_ARGS(P) FORWARD_ARGS_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
+#define FORWARD_ARGS_I(N, ...) FORWARD_ARGS_II(N, __VA_ARGS__)
+#define FORWARD_ARGS_II(N, ...) FORWARD_ARGS_##N(__VA_ARGS__)
 
 //----------------------------------------------------------------------
 //  Named parameter declarations (Strict)
@@ -296,13 +327,13 @@ struct probe_callable {
 #define DUCK_TRAIT_REQ4_TUPLE(TP, M) DUCK_TRAIT_REQ4_APPLY(TP, UNWRAP(M))
 #define DUCK_TRAIT_REQ4_APPLY(TP, ...) DUCK_TRAIT_REQ4(TP, __VA_ARGS__)
 #define DUCK_TRAIT_REQ4(TP, Ret, Name, Params)                                 \
-  {Impl<ALL_ARGS(TP)>::Name(TUPLE_TO_DECLVALS(Params))}->std::same_as<TYPE_SPEC(Ret)>;
+  {Impl<ALL_ARGS(TP)>::Name(TUPLE_TO_DECLVALS(Params))};
 
 // Generates both strict and generic overloads for free functions
 #define FREE_FUNC4_TUPLE(TP, M) FREE_FUNC4_APPLY(TP, UNWRAP(M))
 #define FREE_FUNC4_APPLY(TP, ...) FREE_FUNC4(TP, __VA_ARGS__)
 #define FREE_FUNC4(TP, Ret, Name, Params)                                      \
-  FUNC_TEMPLATE_HEAD(TP) TYPE_SPEC(Ret) Name(FUNC_PARAMS(Params)) {            \
+  FUNC_TEMPLATE_HEAD(TP) auto Name(FUNC_PARAMS(Params)) {                     \
     return Impl<ALL_ARGS(TP)>::Name(CALL_ARGS(Params));                        \
   }                                                                            
 
@@ -314,147 +345,158 @@ struct probe_callable {
 #define VT_ENTRY4_TUPLE(TP, M) VT_ENTRY4_APPLY(TP, UNWRAP(M))
 #define VT_ENTRY4_APPLY(TP, ...) VT_ENTRY4(TP, __VA_ARGS__)
 #define VT_ENTRY4(TP, Ret, Name, Params)                                       \
-  .Name = [](void *p VT_LAMBDA_EXTRA_PARAMS(Params)) -> TYPE_SPEC(Ret) {       \
+  .Name = [](void *p VT_LAMBDA_EXTRA_PARAMS(Params)) {                        \
     using Receiver = FIRST(Params);                                            \
-    return Impl<ALL_ARGS(TP)>::Name(                                           \
-        ::gen_interface_detail::receiver_from<Receiver, FIRST(TP)>(p)          \
-            CALL_EXTRA_ARGS(Params));                                          \
+    if constexpr (std::is_void_v<TYPE_SPEC(Ret)>) {                            \
+      Impl<ALL_ARGS(TP)>::Name(                                               \
+          ::gen_interface_detail::receiver_from<Receiver, FIRST(TP)>(p)        \
+              CALL_EXTRA_ARGS(Params));                                        \
+    } else if constexpr (std::is_same_v<TYPE_SPEC(Ret),                        \
+                                        FIRST(TP) *>) {                       \
+      return static_cast<void *>(                                              \
+          Impl<ALL_ARGS(TP)>::Name(                                            \
+              ::gen_interface_detail::receiver_from<Receiver, FIRST(TP)>(p)    \
+                  CALL_EXTRA_ARGS(Params)));                                   \
+    } else {                                                                   \
+      return Impl<ALL_ARGS(TP)>::Name(                                         \
+          ::gen_interface_detail::receiver_from<Receiver, FIRST(TP)>(p)        \
+              CALL_EXTRA_ARGS(Params));                                        \
+    }                                                                          \
   },
 
 #define IMPL_DYN_METHOD4_TUPLE(TP, M) IMPL_DYN_METHOD4_APPLY(TP, UNWRAP(M))
 #define IMPL_DYN_METHOD4_APPLY(TP, ...) IMPL_DYN_METHOD4(TP, __VA_ARGS__)
 #define IMPL_DYN_METHOD4(TP, Ret, Name, Params)                                \
-  static TYPE_SPEC(Ret) Name(Dyn ANGLE_EXTRA_ARGS(TP) &&                       \
+  static auto Name(Dyn ANGLE_EXTRA_ARGS(TP) &&                                \
                   d VT_LAMBDA_EXTRA_PARAMS(Params)) {                          \
     return d.vtable->Name(d.object CALL_EXTRA_ARGS(Params));                   \
   }                                                                            \
-  static TYPE_SPEC(Ret) Name(Dyn ANGLE_EXTRA_ARGS(TP) &                        \
+  static auto Name(Dyn ANGLE_EXTRA_ARGS(TP) &                                 \
                   d VT_LAMBDA_EXTRA_PARAMS(Params)) {                          \
     return d.vtable->Name(d.object CALL_EXTRA_ARGS(Params));                   \
   }                                                                            \
-  static TYPE_SPEC(Ret) Name(Dyn ANGLE_EXTRA_ARGS(TP) * \
+  static auto Name(Dyn ANGLE_EXTRA_ARGS(TP) *                                 \
                   d VT_LAMBDA_EXTRA_PARAMS(Params)) {                          \
     return d->vtable->Name(d->object CALL_EXTRA_ARGS(Params));                 \
   }                                                                            \
-  static TYPE_SPEC(Ret) Name(const Dyn ANGLE_EXTRA_ARGS(TP) &                  \
+  static auto Name(const Dyn ANGLE_EXTRA_ARGS(TP) &                           \
                   d VT_LAMBDA_EXTRA_PARAMS(Params)) {                          \
     return d.vtable->Name(d.object CALL_EXTRA_ARGS(Params));                   \
   }                                                                            \
-  static TYPE_SPEC(Ret) Name(const Dyn ANGLE_EXTRA_ARGS(TP) * \
+  static auto Name(const Dyn ANGLE_EXTRA_ARGS(TP) *                           \
                   d VT_LAMBDA_EXTRA_PARAMS(Params)) {                          \
     return d->vtable->Name(d->object CALL_EXTRA_ARGS(Params));                 \
   }
+
+// Explicit typed member methods on `Dyn<B>`. For 1-param traits this is a
+// duplicate of what the inherited non-template Mixin method already
+// provides. For 2-/3-param traits it is *required*: the Mixin's method is
+// now a template (since the extra type params moved onto the method), and
+// `dyn.into()` cannot deduce them -- so Dyn<B> explicitly redeclares a
+// non-template `T into(this auto& self)` that bakes in its own `B`/`T`.
+// This preserves the `dyn.into()` ergonomics; the template Mixin method
+// stays reachable as `dyn.template into<float>()` if anyone ever wants it.
+#if TRAIT_HAS_DEDUCING_THIS
+
+#define DYN_TYPED_METHOD4_TUPLE(NS, TP, M)                                      \
+  DYN_TYPED_METHOD4_APPLY(NS, TP, UNWRAP(M))
+#define DYN_TYPED_METHOD4_APPLY(NS, TP, ...)                                    \
+  DYN_TYPED_METHOD4(NS, TP, __VA_ARGS__)
+#define DYN_TYPED_METHOD4(NS, TP, Ret, Name, Params)                            \
+  auto Name(this auto &self MIXIN_METHOD_EXTRA_PARAMS(Params)) {               \
+    if constexpr (requires {                                                   \
+                    ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params)); \
+                  }) {                                                         \
+      return ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params));   \
+    } else {                                                                   \
+      return ::NS::Name ANGLE_EXTRA_ARGS(TP)(&self CALL_EXTRA_ARGS(Params));  \
+    }                                                                          \
+  }
+
+#else // !TRAIT_HAS_DEDUCING_THIS -- C++20 fallback: Dyn<B> has no typed
+       // method sugar. Callers use `NS::method(dyn, ...)` (the qualified
+       // free function) or `NS::Impl<Dyn<B>>::method(dyn, ...)`.
+
+#define DYN_TYPED_METHOD4_TUPLE(NS, TP, M) /* empty on C++20 */
+#define DYN_TYPED_METHOD4_APPLY(NS, TP, ...)
+#define DYN_TYPED_METHOD4(NS, TP, Ret, Name, Params)
+
+#endif
 
 //--------------------------------------------------------------------
 //  Mixin helpers
 //--------------------------------------------------------------------
-#if (defined(__cpp_explicit_this_parameter) && __cpp_explicit_this_parameter >= 202110L) || defined(__clang__)
+//  Mixin generation (C++23 deducing-this path).
+//
+//  Mixin is ALWAYS a non-template struct -- even for multi-param traits.
+//  When the trait has extra type params (e.g. Into<Self, T>), the extra
+//  params move onto each method as a template head, so callers write
+//  `c.into<float>()` instead of inheriting `Into::Mixin<float>`. This is
+//  what lets `Impls` (also non-template) auto-inherit every registered
+//  trait's Mixin regardless of arity.
+//--------------------------------------------------------------------
 
-#define MIXIN_TEMPLATE_HEAD(TP)                                                \
-  MIXIN_TEMPLATE_HEAD_I(VA_COUNT(UNWRAP(TP)), UNWRAP(TP))
-#define MIXIN_TEMPLATE_HEAD_I(N, ...) MIXIN_TEMPLATE_HEAD_II(N, __VA_ARGS__)
-#define MIXIN_TEMPLATE_HEAD_II(N, ...) MIXIN_TEMPLATE_HEAD_##N(__VA_ARGS__)
-#define MIXIN_TEMPLATE_HEAD_1(A)
-#define MIXIN_TEMPLATE_HEAD_2(A, B) template <typename B>
-#define MIXIN_TEMPLATE_HEAD_3(A, B, C) template <typename B, typename C>
+// Per-method template head. Empty for 1-param traits; introduces the extra
+// type params for 2-/3-param traits.
+#define MIXIN_METHOD_TEMPLATE_HEAD(TP)                                          \
+  MIXIN_METHOD_TEMPLATE_HEAD_I(VA_COUNT(UNWRAP(TP)), UNWRAP(TP))
+#define MIXIN_METHOD_TEMPLATE_HEAD_I(N, ...)                                    \
+  MIXIN_METHOD_TEMPLATE_HEAD_II(N, __VA_ARGS__)
+#define MIXIN_METHOD_TEMPLATE_HEAD_II(N, ...)                                   \
+  MIXIN_METHOD_TEMPLATE_HEAD_##N(__VA_ARGS__)
+#define MIXIN_METHOD_TEMPLATE_HEAD_1(A)
+#define MIXIN_METHOD_TEMPLATE_HEAD_2(A, B) template <typename B>
+#define MIXIN_METHOD_TEMPLATE_HEAD_3(A, B, C) template <typename B, typename C>
 
-#define MIXIN_METHOD_EXTRA_PARAMS(P)                                          \
+// `struct Mixin` itself is never templated.
+#define MIXIN_TEMPLATE_HEAD(TP)
+
+#define MIXIN_METHOD_EXTRA_PARAMS(P)                                            \
   MIXIN_METHOD_EXTRA_PARAMS_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
-#define MIXIN_METHOD_EXTRA_PARAMS_I(N, ...)                                    \
+#define MIXIN_METHOD_EXTRA_PARAMS_I(N, ...)                                     \
   MIXIN_METHOD_EXTRA_PARAMS_II(N, __VA_ARGS__)
-#define MIXIN_METHOD_EXTRA_PARAMS_II(N, ...)                                   \
+#define MIXIN_METHOD_EXTRA_PARAMS_II(N, ...)                                    \
   MIXIN_METHOD_EXTRA_PARAMS_##N(__VA_ARGS__)
 #define MIXIN_METHOD_EXTRA_PARAMS_1(S)
 #define MIXIN_METHOD_EXTRA_PARAMS_2(S, T1) , PARAM_DECL(T1, p1)
 #define MIXIN_METHOD_EXTRA_PARAMS_3(S, T1, T2) , PARAM_DECL(T1, p1), PARAM_DECL(T2, p2)
-#define MIXIN_METHOD_EXTRA_PARAMS_4(S, T1, T2, T3)                             \
+#define MIXIN_METHOD_EXTRA_PARAMS_4(S, T1, T2, T3)                              \
   , PARAM_DECL(T1, p1), PARAM_DECL(T2, p2), PARAM_DECL(T3, p3)
-#define MIXIN_METHOD_EXTRA_PARAMS_5(S, T1, T2, T3, T4)                         \
+#define MIXIN_METHOD_EXTRA_PARAMS_5(S, T1, T2, T3, T4)                          \
   , PARAM_DECL(T1, p1), PARAM_DECL(T2, p2), PARAM_DECL(T3, p3), PARAM_DECL(T4, p4)
 
-#define MIXIN_METHOD4_TUPLE(NS, TP, M) MIXIN_METHOD4_APPLY(NS, TP, UNWRAP(M))
-#define MIXIN_METHOD4_APPLY(NS, TP, ...) MIXIN_METHOD4(TP, NS, __VA_ARGS__)
-#define MIXIN_METHOD4(TP, NS, Ret, Name, Params)                               \
-  TYPE_SPEC(Ret) Name(this auto &self MIXIN_METHOD_EXTRA_PARAMS(Params)) {     \
-    if constexpr (requires {                                                   \
-                    ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params)); \
-                  }) {                                                         \
-      if constexpr (std::is_void_v<TYPE_SPEC(Ret)>) {                          \
-        ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params));         \
-      } else {                                                                 \
-        return ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params));  \
-      }                                                                        \
-    } else {                                                                   \
-      if constexpr (std::is_void_v<TYPE_SPEC(Ret)>) {                          \
-        ::NS::Name ANGLE_EXTRA_ARGS(TP)(&self CALL_EXTRA_ARGS(Params));        \
-      } else {                                                                 \
-        return ::NS::Name ANGLE_EXTRA_ARGS(TP)(&self CALL_EXTRA_ARGS(Params)); \
-      }                                                                        \
-    }                                                                          \
-  }
-
-#else
-
-#define MIXIN_TEMPLATE_HEAD(TP)                                                \
-  MIXIN_TEMPLATE_HEAD_I(VA_COUNT(UNWRAP(TP)), UNWRAP(TP))
-#define MIXIN_TEMPLATE_HEAD_I(N, ...) MIXIN_TEMPLATE_HEAD_II(N, __VA_ARGS__)
-#define MIXIN_TEMPLATE_HEAD_II(N, ...) MIXIN_TEMPLATE_HEAD_##N(__VA_ARGS__)
-#define MIXIN_TEMPLATE_HEAD_1(A) template <class Derived>
-#define MIXIN_TEMPLATE_HEAD_2(A, B) template <class Derived, typename B>
-#define MIXIN_TEMPLATE_HEAD_3(A, B, C)                                         \
-  template <class Derived, typename B, typename C>
-
-#define MIXIN_METHOD_PARAMS(P)                                                \
-  MIXIN_METHOD_PARAMS_I(VA_COUNT(UNWRAP(P)), UNWRAP(P))
-#define MIXIN_METHOD_PARAMS_I(N, ...)                                          \
-  MIXIN_METHOD_PARAMS_II(N, __VA_ARGS__)
-#define MIXIN_METHOD_PARAMS_II(N, ...)                                         \
-  MIXIN_METHOD_PARAMS_##N(__VA_ARGS__)
-#define MIXIN_METHOD_PARAMS_1(S)
-#define MIXIN_METHOD_PARAMS_2(S, T1) PARAM_DECL(T1, p1)
-#define MIXIN_METHOD_PARAMS_3(S, T1, T2) PARAM_DECL(T1, p1), PARAM_DECL(T2, p2)
-#define MIXIN_METHOD_PARAMS_4(S, T1, T2, T3)                                   \
-  PARAM_DECL(T1, p1), PARAM_DECL(T2, p2), PARAM_DECL(T3, p3)
-#define MIXIN_METHOD_PARAMS_5(S, T1, T2, T3, T4)                               \
-  PARAM_DECL(T1, p1), PARAM_DECL(T2, p2), PARAM_DECL(T3, p3), PARAM_DECL(T4, p4)
+#if TRAIT_HAS_DEDUCING_THIS
 
 #define MIXIN_METHOD4_TUPLE(NS, TP, M) MIXIN_METHOD4_APPLY(NS, TP, UNWRAP(M))
 #define MIXIN_METHOD4_APPLY(NS, TP, ...) MIXIN_METHOD4(TP, NS, __VA_ARGS__)
-#define MIXIN_METHOD4(TP, NS, Ret, Name, Params)                               \
-  TYPE_SPEC(Ret) Name(MIXIN_METHOD_PARAMS(Params)) {                           \
+#define MIXIN_METHOD4(TP, NS, Ret, Name, Params)                                \
+  MIXIN_METHOD_TEMPLATE_HEAD(TP)                                               \
+  auto Name(this auto &self MIXIN_METHOD_EXTRA_PARAMS(Params)) {               \
     if constexpr (requires {                                                   \
-                    ::NS::Name ANGLE_EXTRA_ARGS(TP)(static_cast<Derived &>(    \
-                        *this) CALL_EXTRA_ARGS(Params));                       \
-                  }) {                                                         \
-      if constexpr (std::is_void_v<decltype(::NS::Name ANGLE_EXTRA_ARGS(TP)(   \
-                        static_cast<Derived &>(*this)                          \
-                            CALL_EXTRA_ARGS(Params)))>) {                      \
-        ::NS::Name ANGLE_EXTRA_ARGS(TP)(static_cast<Derived &>(*this)          \
-                                            CALL_EXTRA_ARGS(Params));          \
-      } else {                                                                 \
-        return ::NS::Name ANGLE_EXTRA_ARGS(TP)(static_cast<Derived &>(*this)   \
-                                                   CALL_EXTRA_ARGS(Params));   \
-      }                                                                        \
+                     ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params)); \
+                   }) {                                                         \
+      return ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params));    \
     } else {                                                                   \
-      if constexpr (std::is_void_v<decltype(::NS::Name ANGLE_EXTRA_ARGS(TP)(   \
-                        static_cast<Derived *>(this)                           \
-                            CALL_EXTRA_ARGS(Params)))>) {                      \
-        ::NS::Name ANGLE_EXTRA_ARGS(TP)(static_cast<Derived *>(this)           \
-                                            CALL_EXTRA_ARGS(Params));          \
-      } else {                                                                 \
-        return ::NS::Name ANGLE_EXTRA_ARGS(TP)(static_cast<Derived *>(this)    \
-                                                   CALL_EXTRA_ARGS(Params));   \
-      }                                                                        \
+      return ::NS::Name ANGLE_EXTRA_ARGS(TP)(&self CALL_EXTRA_ARGS(Params));   \
     }                                                                          \
   }
 
+#else // !TRAIT_HAS_DEDUCING_THIS -- C++20 fallback: no method syntax.
+
+// Mixin is generated as an empty struct. Users on C++20 keep the full
+// trait mechanism (concepts, free functions, Impl, Dyn, vtable) but lose
+// `obj.method()` ergonomics -- they call `NS::method(obj, ...)` instead,
+// which is the canonical trait API.
+#define MIXIN_METHOD4_TUPLE(NS, TP, M) /* empty Mixin on C++20 */
+#define MIXIN_METHOD4_APPLY(NS, TP, ...)
+#define MIXIN_METHOD4(TP, NS, Ret, Name, Params)
+
 #endif
 
-#if (defined(__cpp_explicit_this_parameter) && __cpp_explicit_this_parameter >= 202110L) || defined(__clang__)
-#define MIXIN_BASE(TP) : Mixin ANGLE_EXTRA_ARGS(TP)
-#else
-#define MIXIN_BASE(TP) : Mixin<DYN_IMPL_SPEC_ARGS(TP)>
-#endif
+// Dyn<B> inherits the non-template Mixin. (For 2-/3-param traits, callers
+// who want the typed `dyn.into()` ergonomics get it from the explicit
+// methods generated on Dyn itself -- see DYN_TYPED_METHOD below.)
+#define MIXIN_BASE(TP) : Mixin
 
 //--------------------------------------------------------------------
 //  Strict operation macros
@@ -584,6 +626,7 @@ struct probe_callable {
     FOR_EACH_WITH2(MIXIN_METHOD4_TUPLE, NS, TP, __VA_ARGS__)                   \
   };                                                                           \
   TEMPLATE_DECL(TP) struct VTable {                                            \
+    using Self = void;                                                         \
     FOR_EACH_WITH(VTABLE_MEMBER4_TUPLE, TP, __VA_ARGS__)                       \
   };                                                                           \
   template <TYPENAME_LIST(TP)>                                                 \
@@ -593,6 +636,7 @@ struct probe_callable {
   TEMPLATE_DECL(TP) struct Dyn MIXIN_BASE(TP) {                                \
     void *object;                                                              \
     const VTable ANGLE_EXTRA_ARGS(TP) * vtable;                                \
+    FOR_EACH_WITH2(DYN_TYPED_METHOD4_TUPLE, NS, TP, __VA_ARGS__)               \
     DYN_CTOR_CONSTRAINT(TP)                                                    \
     Dyn(FIRST(TP) & value) : object(&value), vtable(&vt<ALL_ARGS(TP)>) {}      \
     DYN_CTOR_CONSTRAINT(TP)                                                    \
@@ -636,13 +680,14 @@ struct probe_callable {
   template <TYPENAME_LIST(TP)>                                                 \
   concept Trait = (TraitIsDyn<std::remove_cvref_t<FIRST(TP)>>::value &&        \
                    TraitDuck<ALL_ARGS(TP)>) ||                                 \
-                  (!TraitIsDyn<std::remove_cvref_t<FIRST(TP)>>::value &&       \
-                   TraitStrict<ALL_ARGS(TP)>);                                 \
+                   (!TraitIsDyn<std::remove_cvref_t<FIRST(TP)>>::value &&       \
+                    TraitStrict<ALL_ARGS(TP)>);                                 \
   FOR_EACH_WITH(FREE_FUNC4_TUPLE, TP, __VA_ARGS__)                             \
   MIXIN_TEMPLATE_HEAD(TP) struct Mixin {                                       \
     FOR_EACH_WITH2(MIXIN_METHOD4_TUPLE, NS, TP, __VA_ARGS__)                   \
   };                                                                           \
   TEMPLATE_DECL(TP) struct VTable {                                            \
+    using Self = void;                                                         \
     FOR_EACH_WITH(VTABLE_MEMBER4_TUPLE, TP, __VA_ARGS__)                       \
   };                                                                           \
   template <TYPENAME_LIST(TP)>                                                 \
@@ -652,6 +697,7 @@ struct probe_callable {
   TEMPLATE_DECL(TP) struct Dyn MIXIN_BASE(TP) {                                \
     void *object;                                                              \
     const VTable ANGLE_EXTRA_ARGS(TP) * vtable;                                \
+    FOR_EACH_WITH2(DYN_TYPED_METHOD4_TUPLE, NS, TP, __VA_ARGS__)               \
     DYN_CTOR_CONSTRAINT(TP)                                                    \
     Dyn(FIRST(TP) & value) : object(&value), vtable(&vt<ALL_ARGS(TP)>) {}      \
     DYN_CTOR_CONSTRAINT(TP)                                                    \
@@ -683,7 +729,9 @@ struct probe_callable {
 #define TRAIT_EXPAND_1(...) TRAIT_EXPAND_2(__VA_ARGS__)
 #define TRAIT_EXPAND_2(Name, TP, MethodsTuple)                                 \
   TRAIT_EXPAND_3(Name, TP, UNWRAP_I MethodsTuple)
-#define TRAIT_EXPAND_3(Name, TP, ...) StrictTrait(Name, TP, __VA_ARGS__)
+#define TRAIT_EXPAND_3(Name, TP, ...)                                          \
+  StrictTrait(Name, TP, __VA_ARGS__)                                          \
+  TRAIT_MAYBE_REGISTER(Name, TP, __COUNTER__, __VA_ARGS__)
 
 #define static_trait(...) STATIC_TRAIT_EXPAND_1(__VA_ARGS__)
 #define STATIC_TRAIT_EXPAND_1(...) STATIC_TRAIT_EXPAND_2(__VA_ARGS__)
@@ -696,7 +744,9 @@ struct probe_callable {
 #define DUCKTYPED_TRAIT_EXPAND_1(...) DUCKTYPED_TRAIT_EXPAND_2(__VA_ARGS__)
 #define DUCKTYPED_TRAIT_EXPAND_2(Name, TP, MethodsTuple)                       \
   DUCKTYPED_TRAIT_EXPAND_3(Name, TP, UNWRAP_I MethodsTuple)
-#define DUCKTYPED_TRAIT_EXPAND_3(Name, TP, ...) DuckTrait(Name, TP, __VA_ARGS__)
+#define DUCKTYPED_TRAIT_EXPAND_3(Name, TP, ...)                                \
+  DuckTrait(Name, TP, __VA_ARGS__)                                            \
+  TRAIT_MAYBE_REGISTER(Name, TP, __COUNTER__, __VA_ARGS__)
 
 #define static_ducktyped_trait(...) STATIC_DUCKTYPED_TRAIT_EXPAND_1(__VA_ARGS__)
 #define STATIC_DUCKTYPED_TRAIT_EXPAND_1(...)                                   \
@@ -1125,9 +1175,184 @@ struct probe_callable {
 #define THIRD_I(N, ...) THIRD_II(N, __VA_ARGS__)
 #define THIRD_II(N, ...) THIRD_##N(__VA_ARGS__)
 
+// ---------------------------------------------------------------------------
+//  Impls<D> : automatic registration-based mixin aggregation.
+//
+//  Every `trait(...)` and `ducktyped_trait(...)` automatically registers a
+//  LAYER when the macro expands -- there is no separate registration call.
+//  Any subsequently declared
+//      struct T : Impls<T> { /* members */ };
+//  inherits a linear chain of layers, one per registered trait, where each
+//  layer adds that trait's methods.
+//
+//  **Linear chain, not parallel bases.** Unlike the old slot/chain system
+//  where each trait's Mixin was a separate base class (causing spurious
+//  ambiguity when two traits shared a method name), layers form a LINEAR
+//  inheritance chain: layer<N> inherits from layer<N-1>. In a linear chain,
+//  a method in a derived class HIDES the same-named method in the base --
+//  no ambiguity. Each method uses `if constexpr` to try its own trait first,
+//  then falls back to the previous layer:
+//
+//      auto scale(this auto& self, int f) {
+//        if constexpr (requires { Transform::scale(&self, f); })
+//          return Transform::scale(&self, f);   // this trait wins if implemented
+//        else if constexpr (requires { layer<D, N-1>::scale(self, f); })
+//          return layer<D, N-1>::scale(self, f); // fall back to previous trait
+//      }
+//
+//  So if Square only implements Shape (not Transform), `q.scale(3)` calls
+//  layer<1>::scale (Transform's), which fails the `if constexpr` (no
+//  Impl<Square> for Transform) and falls back to layer<0>::scale (Shape's),
+//  which calls Shape::scale. No qualified call needed.
+//
+//  If Circle implements BOTH Shape and Transform, `c.scale(2)` calls
+//  Transform::scale (the topmost layer wins). To reach Shape::scale, use
+//  the qualified free function: `Shape::scale(&c, 2)`.
+//
+//  `Mixin` is always non-template (C++23 deducing-this), so all trait
+//  arities (1, 2, 3) can be registered. For multi-param traits, each layer
+//  method is a template on the extra type params (`c.into<float>()`).
+//
+//  Traits that do not generate a `Mixin` (`static_trait` /
+//  `static_ducktyped_trait`) are never registered.
+// ---------------------------------------------------------------------------
+namespace trait_impls_detail {
+
+// Base of the layer chain.
+struct chain_end {};
+
+// Primary template: pass-through layer (no methods). Unregistered indices
+// just forward to the previous layer.
+template <class D, int N> struct layer : layer<D, N - 1> {};
+
+// Base case: empty.
+template <class D> struct layer<D, -1> : chain_end {};
+
+// `Impls<D>` -- users write `struct Circle : Impls<Circle> { ... };`.
+// The `_ = 255` default keeps the chain lazy (dependent base), so it only
+// instantiates when used as a base in user code -- after all layer
+// specializations are in place.
+template <class D, int _ = 255> struct Impls_t : layer<D, _> {};
+template <class D> using Impls = Impls_t<D>;
+
+} // namespace trait_impls_detail
+
+// `template` keyword for dependent-name method calls on the previous layer.
+// Needed when the method is itself a template (2-/3-param traits).
+#define LAYER_FALLBACK_KW(TP)                                                   \
+  LAYER_FALLBACK_KW_I(VA_COUNT(UNWRAP(TP)), UNWRAP(TP))
+#define LAYER_FALLBACK_KW_I(N, ...) LAYER_FALLBACK_KW_II(N, __VA_ARGS__)
+#define LAYER_FALLBACK_KW_II(N, ...) LAYER_FALLBACK_KW_##N(__VA_ARGS__)
+#define LAYER_FALLBACK_KW_1(A)
+#define LAYER_FALLBACK_KW_2(A, B) template
+#define LAYER_FALLBACK_KW_3(A, B, C) template
+
+#if TRAIT_HAS_DEDUCING_THIS
+
+// Generate a layer specialization with methods. Each method tries its own
+// trait's free function first (by value, then by pointer), then falls back
+// to the previous layer's method. This is what prevents spurious ambiguity:
+// the method HIDES the base's same-named method, and the `if constexpr`
+// dispatch picks the right trait at call time.
+#define LAYER_METHOD4_TUPLE(NS, TP, N, M)                                       \
+  LAYER_METHOD4_APPLY(NS, TP, N, UNWRAP(M))
+#define LAYER_METHOD4_APPLY(NS, TP, N, ...) LAYER_METHOD4(NS, TP, N, __VA_ARGS__)
+#define LAYER_METHOD4(NS, TP, N, Ret, Name, Params)                             \
+  MIXIN_METHOD_TEMPLATE_HEAD(TP)                                               \
+  auto Name(this auto &self MIXIN_METHOD_EXTRA_PARAMS(Params)) {               \
+    if constexpr (requires {                                                   \
+                     ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params)); \
+                   }) {                                                         \
+      return ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params));    \
+    } else if constexpr (requires {                                            \
+                     ::NS::Name ANGLE_EXTRA_ARGS(TP)(&self CALL_EXTRA_ARGS(Params)); \
+                   }) {                                                         \
+      return ::NS::Name ANGLE_EXTRA_ARGS(TP)(&self CALL_EXTRA_ARGS(Params));   \
+    } else if constexpr (requires {                                            \
+                     self.trait_impls_detail::template layer<D, N - 1>::LAYER_FALLBACK_KW(TP) \
+                         Name ANGLE_EXTRA_ARGS(TP)(FORWARD_ARGS(Params));       \
+                   }) {                                                         \
+      return self.trait_impls_detail::template layer<D, N - 1>::LAYER_FALLBACK_KW(TP) \
+          Name ANGLE_EXTRA_ARGS(TP)(FORWARD_ARGS(Params));                      \
+    }                                                                          \
+  }
+
+#else // !TRAIT_HAS_DEDUCING_THIS -- C++20 fallback: no method syntax.
+
+#define LAYER_METHOD4_TUPLE(NS, TP, N, M) /* empty on C++20 */
+#define LAYER_METHOD4_APPLY(NS, TP, N, ...)
+#define LAYER_METHOD4(NS, TP, N, Ret, Name, Params)
+
+#endif
+
+// Reserve the next macro-counter slot for `NS` and generate a layer
+// specialization with that trait's methods. Each invocation uses
+// `__COUNTER__` exactly once so successive registrations occupy successive
+// layer indices. This is the internal workhorse invoked by the `trait` /
+// `ducktyped_trait` frontends; users do not call it directly.
+#define _trait_register_impl(NS, TP, N, ...)                                    \
+  namespace trait_impls_detail {                                                \
+  template <class D> struct layer<D, N> : layer<D, N - 1> {                    \
+    FOR_EACH_WITH3(LAYER_METHOD4_TUPLE, NS, TP, N, __VA_ARGS__)                 \
+  };                                                                           \
+  }
+
+// Auto-register every `trait`/`ducktyped_trait`. Now that Mixin is always
+// non-template, all arities (1, 2, 3) can be registered.
+#define TRAIT_MAYBE_REGISTER(Name, TP, N, ...) _trait_register_impl(Name, TP, N, __VA_ARGS__)
+
+// Expose Impls at global scope so users can write `struct T : Impls<T> { ... };`.
+using trait_impls_detail::Impls;
+
+// -----------------------------------------------------------------------------
+// Layer registration for static_trait hof methods.
+//
+// static_trait generates free functions but no layers.  These macros filter
+// the method list: type/template items are skipped, hof items become
+// forwarding layer methods that delegate to the static trait free functions.
+// This gives types inheriting Impls<T> dot-syntax for hof methods.
+// ----------------------------------------------------------------------------
+
+// Per-item dispatch: check element count, then whether it's a hof item.
+#define STATIC_LAYER_METHOD4_TUPLE(NS, TP, N, M)                               \
+  STATIC_LAYER_METHOD4_TUPLE_I(NS, TP, N, UNWRAP(M))
+#define STATIC_LAYER_METHOD4_TUPLE_I(NS, TP, N, ...)                           \
+  STATIC_LAYER_METHOD4_TUPLE_II(VA_COUNT(__VA_ARGS__), NS, TP, N, __VA_ARGS__)
+#define STATIC_LAYER_METHOD4_TUPLE_II(CNT, NS, TP, N, ...)                     \
+  CAT(STATIC_LAYER_METHOD4_, CNT)(NS, TP, N, __VA_ARGS__)
+
+// 2-element (type, Name) — not a method, skip.
+#define STATIC_LAYER_METHOD4_2(NS, TP, N, Kind, Name)
+
+// 3-element (template, Name, Args) — not a method, skip.
+#define STATIC_LAYER_METHOD4_3(NS, TP, N, Kind, Name, Extra)
+
+// 4-element — check if hof, then generate forwarding method.
+#define STATIC_LAYER_METHOD4_4(NS, TP, N, Kind, Return, Name, Params)          \
+  CAT(STATIC_LAYER_METHOD4_4_KIND_, HOF_IS_HOF(Kind))(NS, TP, N, Return, Name, Params)
+#define STATIC_LAYER_METHOD4_4_KIND_1(NS, TP, N, Return, Name, Params)         \
+  _HOF_LAYER_METHOD4(NS, TP, N, Return, Name, Params)
+#define STATIC_LAYER_METHOD4_4_KIND_0(NS, TP, N, Return, Name, Params)
+
+// Forwarding layer method for a hof item.
+// Uses variadic template + deducing this to forward any args to the free function.
+#define _HOF_LAYER_METHOD4(NS, TP, N, Return, Name, Params)                    \
+  template <typename... _HofArgs>                                               \
+  auto Name(this auto &&self, _HofArgs&&... _hof_args) {                        \
+    return ::NS::Name(self, std::forward<_HofArgs>(_hof_args)...);              \
+  }
+
+// Register layers for static_trait: filter hof items only, skip type/template.
+#define _static_trait_register_impl(NS, TP, N, ...)                             \
+  namespace trait_impls_detail {                                                \
+  template <class D> struct layer<D, N> : layer<D, N - 1> {                    \
+    FOR_EACH_WITH3(STATIC_LAYER_METHOD4_TUPLE, NS, TP, N, __VA_ARGS__)         \
+  };                                                                           \
+  }
+
 // -----------------------------------------------------------------------------
 // Minimal hof-aware static_trait override
-// -----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 
 #undef static_trait
 #define static_trait(Name, TP, MethodsTuple)                                   \
@@ -1138,7 +1363,8 @@ struct probe_callable {
     FOR_EACH_WITH(STATIC_TRAIT_REQ_ITEM, TP, UNWRAP_I MethodsTuple)            \
   };                                                                           \
   FOR_EACH_WITH(STATIC_TRAIT_FUNC_ITEM, TP, UNWRAP_I MethodsTuple)             \
-  }
+  }                                                                            \
+  _static_trait_register_impl(Name, TP, __COUNTER__, UNWRAP_I MethodsTuple)
 
 #define STATIC_TRAIT_REQ_ITEM(TP, Item) STATIC_TRAIT_REQ_ITEM_I(TP, UNWRAP(Item))
 #define STATIC_TRAIT_REQ_ITEM_I(TP, ...)                                       \
