@@ -327,13 +327,13 @@ struct probe_callable {
 #define DUCK_TRAIT_REQ4_TUPLE(TP, M) DUCK_TRAIT_REQ4_APPLY(TP, UNWRAP(M))
 #define DUCK_TRAIT_REQ4_APPLY(TP, ...) DUCK_TRAIT_REQ4(TP, __VA_ARGS__)
 #define DUCK_TRAIT_REQ4(TP, Ret, Name, Params)                                 \
-  {Impl<ALL_ARGS(TP)>::Name(TUPLE_TO_DECLVALS(Params))}->std::same_as<TYPE_SPEC(Ret)>;
+  {Impl<ALL_ARGS(TP)>::Name(TUPLE_TO_DECLVALS(Params))};
 
 // Generates both strict and generic overloads for free functions
 #define FREE_FUNC4_TUPLE(TP, M) FREE_FUNC4_APPLY(TP, UNWRAP(M))
 #define FREE_FUNC4_APPLY(TP, ...) FREE_FUNC4(TP, __VA_ARGS__)
 #define FREE_FUNC4(TP, Ret, Name, Params)                                      \
-  FUNC_TEMPLATE_HEAD(TP) TYPE_SPEC(Ret) Name(FUNC_PARAMS(Params)) {            \
+  FUNC_TEMPLATE_HEAD(TP) auto Name(FUNC_PARAMS(Params)) {                     \
     return Impl<ALL_ARGS(TP)>::Name(CALL_ARGS(Params));                        \
   }                                                                            
 
@@ -345,33 +345,45 @@ struct probe_callable {
 #define VT_ENTRY4_TUPLE(TP, M) VT_ENTRY4_APPLY(TP, UNWRAP(M))
 #define VT_ENTRY4_APPLY(TP, ...) VT_ENTRY4(TP, __VA_ARGS__)
 #define VT_ENTRY4(TP, Ret, Name, Params)                                       \
-  .Name = [](void *p VT_LAMBDA_EXTRA_PARAMS(Params)) -> TYPE_SPEC(Ret) {       \
+  .Name = [](void *p VT_LAMBDA_EXTRA_PARAMS(Params)) {                        \
     using Receiver = FIRST(Params);                                            \
-    return Impl<ALL_ARGS(TP)>::Name(                                           \
-        ::gen_interface_detail::receiver_from<Receiver, FIRST(TP)>(p)          \
-            CALL_EXTRA_ARGS(Params));                                          \
+    if constexpr (std::is_void_v<TYPE_SPEC(Ret)>) {                            \
+      Impl<ALL_ARGS(TP)>::Name(                                               \
+          ::gen_interface_detail::receiver_from<Receiver, FIRST(TP)>(p)        \
+              CALL_EXTRA_ARGS(Params));                                        \
+    } else if constexpr (std::is_same_v<TYPE_SPEC(Ret),                        \
+                                        FIRST(TP) *>) {                       \
+      return static_cast<void *>(                                              \
+          Impl<ALL_ARGS(TP)>::Name(                                            \
+              ::gen_interface_detail::receiver_from<Receiver, FIRST(TP)>(p)    \
+                  CALL_EXTRA_ARGS(Params)));                                   \
+    } else {                                                                   \
+      return Impl<ALL_ARGS(TP)>::Name(                                         \
+          ::gen_interface_detail::receiver_from<Receiver, FIRST(TP)>(p)        \
+              CALL_EXTRA_ARGS(Params));                                        \
+    }                                                                          \
   },
 
 #define IMPL_DYN_METHOD4_TUPLE(TP, M) IMPL_DYN_METHOD4_APPLY(TP, UNWRAP(M))
 #define IMPL_DYN_METHOD4_APPLY(TP, ...) IMPL_DYN_METHOD4(TP, __VA_ARGS__)
 #define IMPL_DYN_METHOD4(TP, Ret, Name, Params)                                \
-  static TYPE_SPEC(Ret) Name(Dyn ANGLE_EXTRA_ARGS(TP) &&                       \
+  static auto Name(Dyn ANGLE_EXTRA_ARGS(TP) &&                                \
                   d VT_LAMBDA_EXTRA_PARAMS(Params)) {                          \
     return d.vtable->Name(d.object CALL_EXTRA_ARGS(Params));                   \
   }                                                                            \
-  static TYPE_SPEC(Ret) Name(Dyn ANGLE_EXTRA_ARGS(TP) &                        \
+  static auto Name(Dyn ANGLE_EXTRA_ARGS(TP) &                                 \
                   d VT_LAMBDA_EXTRA_PARAMS(Params)) {                          \
     return d.vtable->Name(d.object CALL_EXTRA_ARGS(Params));                   \
   }                                                                            \
-  static TYPE_SPEC(Ret) Name(Dyn ANGLE_EXTRA_ARGS(TP) * \
+  static auto Name(Dyn ANGLE_EXTRA_ARGS(TP) *                                 \
                   d VT_LAMBDA_EXTRA_PARAMS(Params)) {                          \
     return d->vtable->Name(d->object CALL_EXTRA_ARGS(Params));                 \
   }                                                                            \
-  static TYPE_SPEC(Ret) Name(const Dyn ANGLE_EXTRA_ARGS(TP) &                  \
+  static auto Name(const Dyn ANGLE_EXTRA_ARGS(TP) &                           \
                   d VT_LAMBDA_EXTRA_PARAMS(Params)) {                          \
     return d.vtable->Name(d.object CALL_EXTRA_ARGS(Params));                   \
   }                                                                            \
-  static TYPE_SPEC(Ret) Name(const Dyn ANGLE_EXTRA_ARGS(TP) * \
+  static auto Name(const Dyn ANGLE_EXTRA_ARGS(TP) *                           \
                   d VT_LAMBDA_EXTRA_PARAMS(Params)) {                          \
     return d->vtable->Name(d->object CALL_EXTRA_ARGS(Params));                 \
   }
@@ -391,21 +403,13 @@ struct probe_callable {
 #define DYN_TYPED_METHOD4_APPLY(NS, TP, ...)                                    \
   DYN_TYPED_METHOD4(NS, TP, __VA_ARGS__)
 #define DYN_TYPED_METHOD4(NS, TP, Ret, Name, Params)                            \
-  TYPE_SPEC(Ret) Name(this auto &self MIXIN_METHOD_EXTRA_PARAMS(Params)) {     \
+  auto Name(this auto &self MIXIN_METHOD_EXTRA_PARAMS(Params)) {               \
     if constexpr (requires {                                                   \
                     ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params)); \
                   }) {                                                         \
-      if constexpr (std::is_void_v<TYPE_SPEC(Ret)>) {                          \
-        ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params));         \
-      } else {                                                                 \
-        return ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params));  \
-      }                                                                        \
+      return ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params));   \
     } else {                                                                   \
-      if constexpr (std::is_void_v<TYPE_SPEC(Ret)>) {                          \
-        ::NS::Name ANGLE_EXTRA_ARGS(TP)(&self CALL_EXTRA_ARGS(Params));        \
-      } else {                                                                 \
-        return ::NS::Name ANGLE_EXTRA_ARGS(TP)(&self CALL_EXTRA_ARGS(Params)); \
-      }                                                                        \
+      return ::NS::Name ANGLE_EXTRA_ARGS(TP)(&self CALL_EXTRA_ARGS(Params));  \
     }                                                                          \
   }
 
@@ -467,21 +471,13 @@ struct probe_callable {
 #define MIXIN_METHOD4_APPLY(NS, TP, ...) MIXIN_METHOD4(TP, NS, __VA_ARGS__)
 #define MIXIN_METHOD4(TP, NS, Ret, Name, Params)                                \
   MIXIN_METHOD_TEMPLATE_HEAD(TP)                                               \
-  TYPE_SPEC(Ret) Name(this auto &self MIXIN_METHOD_EXTRA_PARAMS(Params)) {     \
+  auto Name(this auto &self MIXIN_METHOD_EXTRA_PARAMS(Params)) {               \
     if constexpr (requires {                                                   \
                      ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params)); \
                    }) {                                                         \
-      if constexpr (std::is_void_v<TYPE_SPEC(Ret)>) {                          \
-        ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params));         \
-      } else {                                                                 \
-        return ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params));  \
-      }                                                                        \
+      return ::NS::Name ANGLE_EXTRA_ARGS(TP)(self CALL_EXTRA_ARGS(Params));    \
     } else {                                                                   \
-      if constexpr (std::is_void_v<TYPE_SPEC(Ret)>) {                          \
-        ::NS::Name ANGLE_EXTRA_ARGS(TP)(&self CALL_EXTRA_ARGS(Params));        \
-      } else {                                                                 \
-        return ::NS::Name ANGLE_EXTRA_ARGS(TP)(&self CALL_EXTRA_ARGS(Params)); \
-      }                                                                        \
+      return ::NS::Name ANGLE_EXTRA_ARGS(TP)(&self CALL_EXTRA_ARGS(Params));   \
     }                                                                          \
   }
 
@@ -630,6 +626,7 @@ struct probe_callable {
     FOR_EACH_WITH2(MIXIN_METHOD4_TUPLE, NS, TP, __VA_ARGS__)                   \
   };                                                                           \
   TEMPLATE_DECL(TP) struct VTable {                                            \
+    using Self = void;                                                         \
     FOR_EACH_WITH(VTABLE_MEMBER4_TUPLE, TP, __VA_ARGS__)                       \
   };                                                                           \
   template <TYPENAME_LIST(TP)>                                                 \
@@ -690,6 +687,7 @@ struct probe_callable {
     FOR_EACH_WITH2(MIXIN_METHOD4_TUPLE, NS, TP, __VA_ARGS__)                   \
   };                                                                           \
   TEMPLATE_DECL(TP) struct VTable {                                            \
+    using Self = void;                                                         \
     FOR_EACH_WITH(VTABLE_MEMBER4_TUPLE, TP, __VA_ARGS__)                       \
   };                                                                           \
   template <TYPENAME_LIST(TP)>                                                 \

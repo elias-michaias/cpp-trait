@@ -61,6 +61,9 @@ done
 # regardless of $STD so it actually exercises the fallback path.
 run_example "$SCRIPT_DIR/examples/t7.cpp" "c++20"
 
+# t8 is the fluent API / Self* returns showcase (C++23)
+run_example "$SCRIPT_DIR/examples/t8.cpp" "$STD"
+
 echo "─────────────────────────────────"
 echo "Results  : $PASS passed, $FAIL failed"
 
