@@ -1,17 +1,15 @@
 // clang-format off
 
-// t5.cpp – Mixin functionality to the limit: dot notation, C++20 CRTP, C++23 deducing-this
+// t5.cpp – Mixin functionality to the limit: dot notation via C++23 deducing-this.
 //
-// trait(T, ...) generates a nested Mixin type with dot-notation forwarding methods.
-// Two paths are supported (auto-selected by the macro):
+// trait(T, ...) generates a nested Mixin type with dot-notation forwarding
+// methods. Mixin is ALWAYS a non-template struct; for multi-param traits
+// the extra type params move onto each method, so callers write
+// `c.into<float>()` instead of inheriting `Into::Mixin<float>`.
 //
-//   C++23 / Clang  (deducing-this):
-//     struct Foo  : Shape::Mixin          { ... };   // 1-param trait
-//     struct Foo  : Into::Mixin<int>       { ... };   // 2-param trait, extra params explicit
-//
-//   C++20  (CRTP):
-//     struct Foo  : Shape::Mixin<Foo>      { ... };   // 1-param trait
-//     struct Foo  : Into::Mixin<Foo, int>  { ... };   // 2-param trait
+//   struct Foo : Shape::Mixin     { ... };   // 1-param trait
+//   struct Foo : Into::Mixin      { ... };   // 2-param trait; .into<float>()
+//   struct Foo : Impls            { ... };   // auto-inherits every registered Mixin
 //
 // The Mixin auto-detects whether to call the free function with the object by
 // value/ref (e.g. area(Self)) or by pointer (e.g. scale(Self *, int)):
@@ -23,7 +21,7 @@
 //
 // Demonstrates:
 //   1. Value-result method (area)  vs. pointer-mutating method (scale)
-//   2. Multi-param Mixin: Into::Mixin<T> generates a typed .into()
+//   2. Multi-param Mixin: Into::Mixin (non-template); .into<float>() at call site
 //   3. Multiple Mixin inheritance on one struct
 //   4. Mixin + Dyn coexistence: same value usable both ways
 //   5. Template struct with Mixin (generic container satisfying a trait)
@@ -62,7 +60,7 @@ ducktyped_trait(Into, (Self, T), (
 //     Both are accessed uniformly via dot notation.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// C++23 / Clang syntax (no template argument on Mixin):
+// C++23 syntax (Mixin is non-template; deducing-this binds to *this):
 struct Circle : Shape::Mixin {
   int r;
 };
@@ -71,8 +69,8 @@ template <> struct Shape::Impl<Circle> {
   static void scale(Circle *c, int f) { c->r *= f; }
 };
 
-// C++20 CRTP syntax (same struct, uncomment to use with GCC -std=c++20):
-//   struct Circle : Shape::Mixin<Circle> { int r; };
+// Equivalently, register all traits and use Impls to auto-inherit every one:
+//   struct Circle : Impls { int r; };
 
 struct Rect : Shape::Mixin {
   int x, y;
@@ -87,20 +85,21 @@ static_assert(Shape::Trait<Rect>);
 static_assert(Shape::Trait<Shape::Dyn>); // Dyn also satisfies (it has its own Impl)
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2.  Multi-param Mixin: Into::Mixin<T>
+// 2.  Multi-param Mixin: Into::Mixin
 //
-//     The generated `.into()` method is already typed to T.
-//     C++23: struct Foo : Into::Mixin<T>
-//     C++20: struct Foo : Into::Mixin<Foo, T>
+//     `Mixin` is non-template even for multi-param traits. The extra type
+//     param (T) moves onto each method, so callers write `c.into<float>()`.
+//     This is what lets `Impls` (also non-template) inherit every Mixin
+//     regardless of arity.
 // ─────────────────────────────────────────────────────────────────────────────
-struct Celsius : Into::Mixin<float> {
+struct Celsius : Into::Mixin {
   float v;
 };
 template <> struct Into::Impl<Celsius, float> {
   static float into(Celsius c) { return c.v; }
 };
 
-struct Score : Into::Mixin<int> {
+struct Score : Into::Mixin {
   double raw;
 };
 template <> struct Into::Impl<Score, int> {
@@ -233,10 +232,10 @@ int main() {
 
   // ── 2. Multi-param Mixin: typed .into() ─────────────────────────────────
   Celsius cel{.v = 37.5f};
-  printf("%g\n", cel.into());  // 37.5 (float)
+  printf("%g\n", cel.into<float>());  // 37.5 (float)
 
   Score sc{.raw = 9.8};
-  printf("%d\n", sc.into());   // 9    (int, truncated)
+  printf("%d\n", sc.into<int>());   // 9    (int, truncated)
 
   // ── 3. Multiple Mixin inheritance ───────────────────────────────────────
   Widget w{.side = 4, .id = 1};

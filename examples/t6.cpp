@@ -1,20 +1,24 @@
-// t6.cpp -- Impls<Derived>: registration-driven mixin aggregation.
+// t6.cpp -- Impls<D>: registration-driven mixin aggregation.
 //
 // Demonstrates:
-//   * defining a small trait library and registering each trait so that
-//     `struct T : Impls<T>` auto-inherits every registered `Mixin`,
-//   * a real method-name conflict (Shape::scale vs Transform::scale). The
-//     expected way to resolve such conflicts is to skip the mixin sugar and
-//     call the trait's fully-qualified free function, e.g.
-//       Shape::scale(&c, 2);     // geometric scale (r *= f)
-//       Transform::scale(&c, 2); // affine scale (independent)
-//     Both behaviours stay reachable; nothing needs to be hidden or pulled
-//     into scope. The free functions are the canonical trait API -- mixin
-//     methods are ergonomic sugar for the conflict-free case.
-//   * the Mixin's `if constexpr (requires { ... })` dispatch quietly
-//     rejecting `Metric::perimeter(c)` for Circle (no `Metric::Impl<Circle>`
-//     specialised) -- asking Circle for its perimeter is a compile error,
-//     exactly the right response, rather than crashing name lookup.
+//   * defining a small trait library -- each `trait(...)` reserves its
+//     Impls layer automatically (no separate registration line), so
+//     `struct T : Impls<T>` auto-inherits every registered `Mixin` through
+//     a LINEAR chain of layers.
+//   * conflict resolution via method hiding + if-constexpr fallback:
+//     when two registered traits share a method name (Shape::scale and
+//     Transform::scale), the LAST-registered trait's layer HIDES the
+//     earlier one. The layer method tries its own trait first, then falls
+//     back to the previous layer. So:
+//       - Square only implements Shape → q.scale(3) works unqualified:
+//         Transform's layer tries Transform::scale, fails (no Impl),
+//         falls back to Shape's layer, which calls Shape::scale.
+//       - Circle implements both → c.scale(2) calls Transform::scale
+//         (the topmost layer wins). To reach Shape::scale, use the
+//         qualified free function: Shape::scale(&c, 2).
+//   * types that don't specialise a trait's Impl just don't have viable
+//     `if constexpr` branches for that trait's methods -- calling
+//     `c.perimeter()` on Circle (no Metric impl) is a compile error.
 
 #include "../trait.hpp"
 
@@ -46,12 +50,8 @@ trait(Named, (Self), (
   (const char *, name, (Self))
 ))
 
-// Register each trait so Impls<D> pulls its Mixin into the chain.
-register_trait(Shape)
-register_trait(Drawable)
-register_trait(Transform)
-register_trait(Metric)
-register_trait(Named)
+// Each 1-param trait above is auto-registered by its `trait(...)` macro.
+// (2- or 3-param traits are silently skipped -- their Mixin is a template.)
 
 // ---------------------------------------------------------------------------
 //  Circle -- satisfies Shape, Drawable, Transform, Named (NOT Metric)
@@ -59,9 +59,6 @@ register_trait(Named)
 
 struct Circle : Impls<Circle> {
   int r;
-  // No using-declaration: `scale` is ambiguous between Shape::Mixin and
-  // Transform::Mixin. Both behaviours are reachable through their trait's
-  // qualified free function -- see main().
 };
 
 template <> struct Shape::Impl<Circle> {
@@ -85,14 +82,13 @@ template <> struct Named::Impl<Circle> {
 };
 
 // ---------------------------------------------------------------------------
-//  Square -- satisfies Shape only
+//  Square -- satisfies Shape only (NOT Transform)
 // ---------------------------------------------------------------------------
 
-// Square only *specialises* Shape, but `Impls<Square>` still inherits
-// Transform::Mixin unconditionally (see the note on `register_trait`), so
-// `Transform::Mixin::scale` is also visible here. Just like Circle, the
-// `scale` name is ambiguous and must be called with a qualified free
-// function -- `Shape::scale(&q, f)` below.
+// Square only specialises Shape, not Transform. But thanks to the linear
+// layer chain, `q.scale(3)` still works unqualified: Transform's layer
+// tries Transform::scale, fails (no Impl<Square>), and falls back to
+// Shape's layer, which calls Shape::scale. No qualified call needed.
 struct Square : Impls<Square> {
   int s;
 };
@@ -134,24 +130,21 @@ template <> struct Named::Impl<Rect> {
 int main() {
   Circle c{.r = 5};
   printf("%d\n",   c.area());     // 25   (Shape, via Mixin -- no conflict)
-  Shape::scale(&c, 2);           // qualified: geometric scale (r *= f)
-  printf("%d\n",   c.area());     // 100
+  Shape::scale(&c, 2);           // qualified: Circle implements both Shape
+  printf("%d\n",   c.area());     // 100  AND Transform, so `c.scale(2)` goes
   c.draw();                        // circle(r=10)   (Drawable, via Mixin)
   printf("%s\n",   c.name());     // circle         (Named,    via Mixin)
 
-  // The *other* scale, also qualified, also unambiguous -- both behaviours
-  // stay reachable when a name collides.
-  Transform::scale(&c, 2);       // affine (no-op here)
+  Transform::scale(&c, 2);       // the other scale, also qualified
   Transform::rotate(&c, 45.0);
 
   // Circle doesn't specialise Metric, so `c.perimeter()` would be a
   // compile error -- exactly the right response. The Rect below does.
-  // (Uncommenting `c.perimeter();` should fail to compile.)
 
   Square q{.s = 3};
   printf("%d\n",   q.area());     // 9
-  Shape::scale(&q, 3);           // qualified: Shape is the only `scale` here
-  printf("%d\n",   q.area());     // 81
+  q.scale(3);                     // unqualified! Square only implements Shape,
+  printf("%d\n",   q.area());     // 81   so the layer fallback hits Shape::scale
   printf("%s\n",   q.name());     // square
 
   Rect r{.w = 4, .h = 5};

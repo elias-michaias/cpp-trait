@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# test.sh – compile and run all examples, reporting pass/fail
+# test.sh – compile and run all examples, reporting pass/fail.
+#
+# t1–t6 are C++23 (exercise deducing-this Mixin method syntax).
+# t7 is C++20 (exercises the fallback path: trait mechanism without
+#              method syntax -- only qualified free-function calls).
 
 set -euo pipefail
 
@@ -14,6 +18,7 @@ FAIL=0
 
 run_example() {
   local src="$1"
+  local std="$2"
   local name
   name=$(basename "$src" .cpp)
   local bin="$TMPDIR_LOCAL/$name"
@@ -21,8 +26,8 @@ run_example() {
   printf "%-12s " "$name:"
 
   # Compile (suppress macro-redefinition warnings from trait.hpp internals)
-  if ! "$CXX" -std="$STD" $CXXFLAGS -Wno-macro-redefined -o "$bin" "$src" 2>"$TMPDIR_LOCAL/$name.err"; then
-    echo "FAIL  (compile error)"
+  if ! "$CXX" -std="$std" $CXXFLAGS -Wno-macro-redefined -o "$bin" "$src" 2>"$TMPDIR_LOCAL/$name.err"; then
+    echo "FAIL  (compile error, -std=$std)"
     echo "      --- stderr ---"
     sed 's/^/      /' "$TMPDIR_LOCAL/$name.err"
     FAIL=$((FAIL + 1))
@@ -38,19 +43,23 @@ run_example() {
     return
   fi
 
-  echo "PASS"
+  echo "PASS  (-std=$std)"
   PASS=$((PASS + 1))
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "Compiler : $CXX -std=$STD"
+echo "Compiler : $CXX"
 echo "Examples : $SCRIPT_DIR/examples/"
 echo "─────────────────────────────────"
 
-for src in "$SCRIPT_DIR"/examples/t*.cpp; do
-  run_example "$src"
+for src in "$SCRIPT_DIR"/examples/t[1-6].cpp; do
+  run_example "$src" "$STD"
 done
+
+# t7 is the C++20 fallback test -- always compiled with -std=c++20
+# regardless of $STD so it actually exercises the fallback path.
+run_example "$SCRIPT_DIR/examples/t7.cpp" "c++20"
 
 echo "─────────────────────────────────"
 echo "Results  : $PASS passed, $FAIL failed"
