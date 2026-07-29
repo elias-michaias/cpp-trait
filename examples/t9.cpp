@@ -12,7 +12,6 @@
 //   )
 
 #include <cstdio>
-#include "../trait.hpp"
 #include "../cpp2_trait.hpp"
 
 cpp2(
@@ -21,18 +20,17 @@ cpp2(
         fn scale as ((Self *, int) -> void)
     )
 
-    duck_trait Show as (
+    trait Show as (
         fn show as ((Self const &) -> void)
     )
 )
 
-CPP2_END
 
 //----------------------------------------------------------------------
 //  implementations
 //----------------------------------------------------------------------
 
-struct Circle : Shape::Mixin {
+struct Circle : Impls<Circle> {
     int r;
 };
 

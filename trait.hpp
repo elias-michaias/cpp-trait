@@ -413,11 +413,12 @@ template <class Sig> using sig_tuple_t = typename sig_tuple_helper<Sig>::type;
 #define DUCK_TRAIT_REQ4_APPLY(TP, ...) DUCK_TRAIT_REQ4_DISPATCH(TP, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
 #define DUCK_TRAIT_REQ4_DISPATCH(TP, N, ...) CAT(DUCK_TRAIT_REQ4_, N)(TP, __VA_ARGS__)
 #define DUCK_TRAIT_REQ4_2(TP, Name, Sig)                                        \
-  { std::apply(                                                                \
-      [](auto &&...args) {                                                     \
-        return Impl<ALL_ARGS(TP)>::Name(std::forward<decltype(args)>(args)...); \
-      },                                                                       \
-      std::declval<                                                            \
+  { ::std::apply(                                                               \
+      [](auto &&...args) -> decltype(auto) {                                   \
+        return Impl<ALL_ARGS(TP)>::Name(                                        \
+            std::forward<decltype(args)>(args)...);                             \
+      },                                                                        \
+      ::std::declval<                                                           \
           ::gen_interface_detail::sig_tuple_t<auto Sig>>()) };
 #define DUCK_TRAIT_REQ4_3(TP, Ret, Name, Params)                                \
   {Impl<ALL_ARGS(TP)>::Name(TUPLE_TO_DECLVALS(Params))};
@@ -431,11 +432,14 @@ template <class Sig> using sig_tuple_t = typename sig_tuple_helper<Sig>::type;
 #define FREE_FUNC4_APPLY(TP, ...) FREE_FUNC4_DISPATCH(TP, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
 #define FREE_FUNC4_DISPATCH(TP, N, ...) CAT(FREE_FUNC4_, N)(TP, __VA_ARGS__)
 #define FREE_FUNC4_2(TP, Name, Sig)                                             \
-  FUNC_TEMPLATE_HEAD(TP) auto Name(                                              \
-      ::gen_interface_detail::sig_first_t<auto Sig> self,                       \
-      auto... args)                                                              \
-      -> ::gen_interface_detail::sig_ret<auto Sig> {                            \
-    return Impl<ALL_ARGS(TP)>::Name(self, args...);                            \
+  auto Name(auto self, auto... args)                                            \
+    requires Trait<std::remove_pointer_t<decltype(self)>> &&                   \
+             requires {                                                        \
+               Impl<std::remove_pointer_t<decltype(self)>>::Name(              \
+                   self, args...);                                             \
+             }                                                                 \
+  {                                                                             \
+    return Impl<std::remove_pointer_t<decltype(self)>>::Name(self, args...);   \
   }
 #define FREE_FUNC4_3(TP, Ret, Name, Params)                                      \
   FUNC_TEMPLATE_HEAD(TP) auto Name(FUNC_PARAMS(Params)) {                       \
@@ -640,9 +644,7 @@ template <class Sig> using sig_tuple_t = typename sig_tuple_helper<Sig>::type;
 #define MIXIN_METHOD4_DISPATCH(NS, TP, N, ...) CAT(MIXIN_METHOD4_, N)(NS, TP, __VA_ARGS__)
 #define MIXIN_METHOD4_2(NS, TP, Name, Sig)                                       \
   MIXIN_METHOD_TEMPLATE_HEAD(TP)                                               \
-  auto Name(this auto &self, auto... args)                                     \
-      -> decltype(::NS::Name ANGLE_EXTRA_ARGS(TP)(                              \
-          self, args...)) {                                                    \
+  auto Name(this auto &self, auto... args) {                                   \
     if constexpr (requires {                                                   \
                      ::NS::Name ANGLE_EXTRA_ARGS(TP)(self, args...);            \
                    }) {                                                        \
@@ -688,15 +690,16 @@ template <class Sig> using sig_tuple_t = typename sig_tuple_helper<Sig>::type;
 #define STRICT_TRAIT_REQ4_APPLY(TP, ...) STRICT_TRAIT_REQ4_DISPATCH(TP, VA_COUNT(__VA_ARGS__), __VA_ARGS__)
 #define STRICT_TRAIT_REQ4_DISPATCH(TP, N, ...) CAT(STRICT_TRAIT_REQ4_, N)(TP, __VA_ARGS__)
 #define STRICT_TRAIT_REQ4_2(TP, Name, Sig)                                      \
-  { std::apply(                                                                \
-      [](auto &&...args) {                                                     \
-        return Impl<ALL_ARGS(TP)>::Name(std::forward<decltype(args)>(args)...); \
-      },                                                                       \
-      std::declval<                                                            \
-          ::gen_interface_detail::sig_tuple_t<auto Sig>>()) }                  \
+  { ::std::apply(                                                               \
+      [](auto &&...args) -> decltype(auto) {                                   \
+        return Impl<ALL_ARGS(TP)>::Name(                                        \
+            std::forward<decltype(args)>(args)...);                             \
+      },                                                                        \
+      ::std::declval<                                                           \
+          ::gen_interface_detail::sig_tuple_t<auto Sig>>()) }                   \
       ->std::same_as<::gen_interface_detail::sig_ret<auto Sig>>;               \
   { static_cast<::gen_interface_detail::sig_full_ptr_t<auto Sig>>(            \
-      Impl<ALL_ARGS(TP)>::Name) }                                              \
+        Impl<ALL_ARGS(TP)>::Name) }                                            \
       ->std::same_as<::gen_interface_detail::sig_full_ptr_t<auto Sig>>;
 #define STRICT_TRAIT_REQ4_3(TP, Ret, Name, Params)                             \
   {Impl<ALL_ARGS(TP)>::Name(TUPLE_TO_DECLVALS(Params))}->std::same_as<TYPE_SPEC(Ret)>;    \
@@ -876,8 +879,9 @@ template <class Sig> using sig_tuple_t = typename sig_tuple_helper<Sig>::type;
   template <TYPENAME_LIST(TP)>                                                 \
   concept Trait = (TraitIsDyn<std::remove_cvref_t<FIRST(TP)>>::value &&        \
                    TraitDuck<ALL_ARGS(TP)>) ||                                 \
-                   (!TraitIsDyn<std::remove_cvref_t<FIRST(TP)>>::value &&       \
-                    TraitStrict<ALL_ARGS(TP)>);                                 \
+                  (!TraitIsDyn<std::remove_cvref_t<FIRST(TP)>>::value &&       \
+                   !std::is_pointer_v<std::remove_cvref_t<FIRST(TP)>> &&       \
+                   TraitStrict<ALL_ARGS(TP)>);                                 \
   FOR_EACH_WITH(FREE_FUNC4_TUPLE, TP, __VA_ARGS__)                             \
   MIXIN_TEMPLATE_HEAD(TP) struct Mixin {                                       \
     FOR_EACH_WITH2(MIXIN_METHOD4_TUPLE, NS, TP, __VA_ARGS__)                   \
@@ -1458,9 +1462,7 @@ template <class D> using Impls = Impls_t<D>;
   CAT(LAYER_METHOD4_, CNT)(NS, TP, N, __VA_ARGS__)
 #define LAYER_METHOD4_2(NS, TP, N, Name, Sig)                                   \
   MIXIN_METHOD_TEMPLATE_HEAD(TP)                                                \
-  auto Name(this auto &self, auto... args)                                      \
-      -> decltype(::NS::Name ANGLE_EXTRA_ARGS(TP)(                               \
-          self, args...)) {                                                     \
+  auto Name(this auto &self, auto... args) {                                    \
     if constexpr (requires {                                                    \
                      ::NS::Name ANGLE_EXTRA_ARGS(TP)(self, args...);            \
                    }) {                                                         \
